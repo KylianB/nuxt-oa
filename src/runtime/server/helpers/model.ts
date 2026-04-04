@@ -25,8 +25,7 @@ addFormats(ajv)
 type Timestamps = { createdAt?: boolean, updatedAt?: boolean }
 type Userstamps = { createdBy?: boolean, updatedBy?: boolean, deletedBy?: boolean }
 
-type OaDbItem<T extends OaModelName> = Omit<OaModels[T], 'id'> & { _id?: ObjectId, createdAt?: string | Date, updatedAt?: string | Date, createdBy?: string | ObjectId, updatedBy?: string | ObjectId, updates?: unknown[], _iv?: string }
-type OaSchema<T extends OaModelName> = (typeof schemasByName)[T] & { encryptedProperties?: string[], trackedProperties?: (keyof OaDbItem<T>)[], timestamps: Timestamps | boolean, userstamps: Userstamps | boolean }
+type OaDbItem<T extends OaModelName> = Omit<OaModels[T], 'id'> & { _id?: ObjectId, createdAt?: string | Date, updatedAt?: string | Date, createdBy?: string | ObjectId, updatedBy?: string | ObjectId, updates?: Record<string, unknown>[], _iv?: string }
 type OaTrackedProps<T extends OaModelName> = keyof OaDbItem<T> & string
 type OaSchema<T extends OaModelName> = { properties: Schema, encryptedProperties?: string[], trackedProperties?: OaTrackedProps<T>[], timestamps: Timestamps | boolean, userstamps: Userstamps | boolean }
 
@@ -74,7 +73,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   userstamps: Userstamps
   schema: Schema
   validator: ValidateFunction
-  getAllCleaner: (el: Partial<WithId<OaDbItem<T>>>) => Partial<OaDbItem<T>>
+  getAllCleaner: (el: Partial<OaDbItem<T>> | WithId<OaDbItem<T>>) => Omit<Partial<OaDbItem<T>> | WithId<OaDbItem<T>>, '_id' | '_iv'> & { id?: ObjectId }
   private collectionName: string
   private dbName: string
   private allDbNames: Set<string>
@@ -136,7 +135,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
     this.validator = ajv.compile(this.schema)
 
-    this.getAllCleaner = (el: object) => this.cleanJSON(el)
+    this.getAllCleaner = el => this.cleanJSON(el)
   }
 
   get collection() {
@@ -236,21 +235,22 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    *  - decrypt props if needed
    * @param d representation of a model instance
    */
-  cleanJSON(d: any) {
+  cleanJSON<D extends Partial<OaDbItem<T>> | WithId<OaDbItem<T>> | OptionalUnlessRequiredId<OaDbItem<T>>>(d: D): Omit<D, '_id' | '_iv'> & { id?: ObjectId } {
     const _iv = d._iv
     const data = { ...d, id: d._id }
     delete data._id
     delete data._iv
     this.rmPropsWithAttr(data, 'writeOnly') // remove properties to omit
 
-    if (this.cipherKey) { // need to decrypt some properties
+    if (this.cipherKey && _iv) { // need to decrypt some properties
       for (const path of this.encryptedProps) {
         _.set(data, path, decrypt(_.get(data, path), _iv, this.cipherKey, cipherAlgo))
       }
-      if (this.trackedProps.length && Array.isArray(data.updates)) { // tracked props remain crypted
-        for (const update of data.updates) {
+      const updates = data.updates ?? []
+      if (this.trackedProps.length && updates?.length) { // tracked props remain crypted
+        for (const update of updates) {
           for (const path of this.encryptedProps) {
-            _.set(update, path, decrypt(_.get(update, path), _iv, this.cipherKey, cipherAlgo))
+            _.set(update, path, decrypt(_.get(update, path) as string, _iv, this.cipherKey, cipherAlgo))
           }
         }
       }
@@ -378,7 +378,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       data._iv = instance._iv
       this.encrypt(data)
     }
-    const { value } = await this.collection
+    const value = await this.collection
       .findOneAndUpdate({ _id } as any, { $set: data }, { returnDocument: 'after' })
     if (!value) {
       throw createError({ statusCode: 404, statusMessage: 'Document not found' })
@@ -405,7 +405,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
     await this.callHook('archive:after', { id, _id, data, event })
 
-    const { value } = await this.collection
+    const value = await this.collection
       .findOneAndUpdate({ _id } as any, { $set: data } as any, { returnDocument: 'after' })
     if (!value) {
       throw createError({ statusCode: 404, statusMessage: 'Document not found' })
@@ -442,7 +442,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         if (!iv) continue // not encrypted
         let same = true
         for (let i = 0; i < paths.length && same; i++) {
-          const path = paths[i]
+          const path = paths[i]!
           const decrypted = decrypt(_.get(doc, path), iv, this.cipherKey, cipherAlgo)
           same = JSON.stringify(decrypted) === JSON.stringify(filter[path])
         }
