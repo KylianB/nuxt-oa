@@ -125,15 +125,11 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         if ('readOnly' in schema.properties[key] && schema.properties[key].readOnly) continue
         props.add(key)
       }
-      props.add('updatedAt')
     }
     this.trackedProps = [...props] as OaTrackedProps<T>[]
     if (this.trackedProps.length) { // if tracking props
       this.timestamps.updatedAt = true // need updatedAt
     }
-    this.userstamps = typeof schema.userstamps === 'object'
-      ? schema.userstamps
-      : (!schema.userstamps ? {} : { createdBy: true, updatedBy: true, deletedBy: true })
 
     this.schema = { additionalProperties: false, ...schema } // set additionalProperties to false by default
     cleanSchema(this.schema)
@@ -371,7 +367,6 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (this.trackedProps.length && instance) {
       const update: Record<string, unknown> = {}
       for (const key of this.trackedProps) {
-        // @ts-expect-error OaTrackedProps<T> # WithId<OaDbItem<T>>
         if (instance[key] !== undefined) update[key] = instance[key]
       }
       data.updates = [...(instance.updates || []), update]
