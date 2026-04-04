@@ -1,3 +1,19 @@
+# [2.0.0](https://github.com/Morgbn/nuxt-oa/compare/v1.14.3...v2.0.0) (2026-04-04)
+
+
+* feat!: :memo: use scalar ([5adbaef](https://github.com/Morgbn/nuxt-oa/commit/5adbaef4c4021c86042a1b808fa1224bca1129c3))
+
+
+### Bug Fixes
+
+* :adhesive_bandage: add missing deleted unstaged code ([5395e45](https://github.com/Morgbn/nuxt-oa/commit/5395e45a50052f86cfb40833ea01adb228870504))
+
+
+### BREAKING CHANGES
+
+* If you were using `swaggerPath` in your configuration,
+you need to update it by `scalarPath`
+
 ## [1.14.3](https://github.com/Morgbn/nuxt-oa/compare/v1.14.2...v1.14.3) (2026-03-19)
 
 
