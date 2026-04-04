@@ -17,7 +17,7 @@ const getSchemas = (options: ModuleOptions, nuxt: Nuxt) => {
     if (oa) {
       if (!options.dbUrl && oa.dbUrl) options.dbUrl = oa.dbUrl // earlier = higher priority
       if (!options.openApiPath && oa.openApiPath) options.openApiPath = oa.openApiPath
-      if (!options.swaggerPath && oa.swaggerPath) options.swaggerPath = oa.swaggerPath
+      if (!options.scalarPath && oa.scalarPath) options.scalarPath = oa.scalarPath
     }
     const layerResolver = createResolver(layer.cwd)
     const schemasFolderPath = layerResolver.resolve(oa?.schemasFolder ?? options.schemasFolder)
@@ -70,7 +70,7 @@ export default defineNuxtModule<ModuleOptions>({
     cipherAlgo: 'aes-256-gcm',
     cipherIvSize: 16,
     openApiPath: '/api-doc/openapi.json',
-    swaggerPath: '/api-doc',
+    scalarPath: '/api-doc',
     cipherKey: '',
     dbUrl: ''
   },
@@ -115,15 +115,15 @@ export default defineNuxtModule<ModuleOptions>({
         route: options.openApiPath,
         handler: resolve('runtime/server/openApiPage')
       })
-      if (options.swaggerPath) {
+      if (options.scalarPath) {
         addServerHandler({
-          route: options.swaggerPath,
-          handler: resolve('runtime/server/swaggerPage')
+          route: options.scalarPath,
+          handler: resolve('runtime/server/scalarPage')
         })
         const { withTrailingSlash, withoutTrailingSlash } = await import('ufo')
         nuxt.hook('listen', (_, listener) => {
-          const viewerUrl = `${withoutTrailingSlash(listener.url)}${options.swaggerPath}`
-          logger.log(`  ${chalk.yellowBright('➜ Swagger')}:  ${chalk.underline.cyan(withTrailingSlash(viewerUrl))} `
+          const viewerUrl = `${withoutTrailingSlash(listener.url)}${options.scalarPath}`
+          logger.log(`  ${chalk.yellowBright('➜ Scalar')}:  ${chalk.underline.cyan(withTrailingSlash(viewerUrl))} `
             + `${chalk.gray(`${Object.keys(schemasByName).length} schema(s) found`)}\n`)
         })
       }

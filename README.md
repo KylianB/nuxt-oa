@@ -6,7 +6,7 @@
 [![Nuxt][nuxt-src]][nuxt-href]
 
 Utilities to quickly create an API from JSON schemas.
-Automatically add Swagger UI route, middleware support, mongodb server, hookables, encrypted properties, timestamps, userstamps, tracked properties and UI components (form [j2u](https://github.com/Morgbn/j2u))
+Automatically add Scalar API documentation route, middleware support, mongodb server, hookables, encrypted properties, timestamps, userstamps, tracked properties and UI components (form [j2u](https://github.com/Morgbn/j2u))
 
 ![image](https://user-images.githubusercontent.com/25689856/224268037-a039f545-60df-48a2-9ecc-53ec1695ffb9.png)
 

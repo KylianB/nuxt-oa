@@ -14,7 +14,7 @@ export default defineNuxtConfig({
   oa: {
     openApiGeneralInfo: {
       title: 'Nuxt-OA Playground API',
-      description: 'Swagger Page for the Playground API of nxut-oa module.',
+      description: 'Scalar API Documentation for the Playground API of nuxt-oa module.',
       version: '1.0.0'
     }
   }

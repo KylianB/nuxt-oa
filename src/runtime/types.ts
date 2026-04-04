@@ -43,7 +43,9 @@ export interface ModuleOptions {
   openApiPath: string
   openApiGeneralInfo?: OpenApiGeneralInfo
   openApiServers?: OpenApiServer[]
-  swaggerPath: string
+  scalarPath: string
+  /** See: https://scalar.com/products/api-references/configuration */
+  scalarConfiguration?: Record<string, unknown>
   dbClientOnRenderer?: boolean
 }
 
