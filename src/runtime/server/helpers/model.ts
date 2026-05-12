@@ -300,7 +300,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param by user id
    * @param at timestamp
    */
-  async createHelper(d: OptionalUnlessRequiredId<OaDbItem<T>>, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, by?: ObjectId | null, at = new Date()) {
+  private async createHelper(d: OptionalUnlessRequiredId<OaDbItem<T>>, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, by?: ObjectId | null, at = new Date()) {
     await this.callHook('create:before', { data: d, event })
 
     this.validate(d)
