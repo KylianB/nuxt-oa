@@ -8,15 +8,6 @@
       <button @click="openTodo({ id: 'new', text: '' })">
         + Add a todo
       </button>
-      <button @click="bulkCreate(false)">
-        + Bulk create (3 todos)
-      </button>
-      <button @click="bulkCreate(true)">
-        + Bulk create (partial fail)
-      </button>
-      <button @click="bulkDelete">
-        - Bulk delete (top 3)
-      </button>
       <json-list
         :items="todos"
         :schema="schema"
@@ -87,6 +78,22 @@
         @click="testWriteReadOnly"
       >
         Update a read only property
+      </button>
+      <br><br>
+      <button @click="bulkCreate(false)">
+        + Bulk create (3 todos)
+      </button>
+      <button @click="bulkCreate(true)">
+        + Bulk create (partial fail)
+      </button>
+      <button @click="bulkDelete">
+        - Bulk delete (top 3)
+      </button>
+      <button @click="bulkArchiveTest">
+        Bulk archive (top 3 + 1 fail)
+      </button>
+      <button @click="bulkArchiveTest(false)">
+        Bulk unarchive (top 3 + 1 fail)
       </button>
     </template>
     <pre
@@ -196,6 +203,20 @@ const bulkDelete = msgWrapper(async () => {
     body: { ids }
   })
   todos.value = todos.value.filter(t => !ids.includes(t.id))
+  return data
+})
+
+const bulkArchiveTest = msgWrapper(async (archive = true) => {
+  const ids = todos.value.slice(0, 3).map(t => t.id)
+  const allIds = [...ids, '63cf86ff1541f5505b' + randStr(16)]
+
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
+    method: 'POST', body: { ids: allIds, archive }
+  })
+  for (const updated of data.results) {
+    const index = todos.value.findIndex(t => t.id === updated.id)
+    if (index !== -1) todos.value.splice(index, 1, updated)
+  }
   return data
 })
 

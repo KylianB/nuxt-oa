@@ -203,6 +203,70 @@ export const useArchive = <T extends OaModelName>(model: Model<T>, apiDoc = {}) 
   })
 }
 
+export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
+  const { name } = model
+  const lowerName = name.toLowerCase()
+
+  return oaHandler(async (event: H3Event) => {
+    const { ids, archive } = await readBody(event)
+    return await model.bulkArchive(ids, archive, useUserId(event), event)
+  }, {
+    tags: [name],
+    summary: `Bulk archive ${lowerName}`,
+    operationId: `bulkArchive${name}`,
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              ids: { type: 'array', items: { type: 'string' } },
+              archive: { type: 'boolean' }
+            },
+            required: ['ids']
+          }
+        }
+      }
+    },
+    responses: {
+      200: {
+        description: `List of archived ${lowerName}.`,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                results: {
+                  type: 'array',
+                  items: {
+                    $ref: `#/components/schemas/${name}`
+                  }
+                },
+                errors: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      data: {
+                        type: 'object',
+                        properties: {
+                          ids: { type: 'array', items: { type: 'string' } }
+                        }
+                      },
+                      error: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    ...apiDoc
+  })
+}
+
 export const useDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
   const { name } = model
   const lowerName = name.toLowerCase()

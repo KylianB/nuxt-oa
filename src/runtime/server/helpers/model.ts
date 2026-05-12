@@ -36,6 +36,7 @@ type HookArgDoc = { document?: WithId<Document> | null }
 type HookArgDocs = { documents: WithId<Document>[] }
 type HookArgEv = { event?: H3Event }
 type HookArgIds = { id: string | ObjectId | undefined, _id: ObjectId }
+type HookArgIdsArray = { ids: (string | ObjectId | undefined)[], _ids: ObjectId[] }
 type HookArgErrors = { errors: { data?: Schema, error: unknown }[] }
 export interface ModelNuxtOaHooks<T extends OaModelName> {
   'collection:ready': (d: { collection: Collection<OaDbItem<T>>, dbName: string, defaultDbName: string }) => HookResult
@@ -56,6 +57,10 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'archive:document': (d: HookArgDoc & HookArgEv) => HookResult
   'archive:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
   'archive:done': (d: HookArgData & HookArgEv) => HookResult
+  'bulkArchive:before': (d: HookArgEv & HookArgIdsArray) => HookResult
+  'bulkArchive:documents': (d: HookArgDocs & HookArgEv) => HookResult
+  'bulkArchive:after': (d: HookArgData & HookArgEv & HookArgIdsArray) => HookResult
+  'bulkArchive:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'delete:before': (d: HookArgEv & HookArgIds) => HookResult
   'delete:document': (d: HookArgDoc & HookArgEv) => HookResult
   'delete:done': (d: HookArgData & HookArgEv & { deletedCount: number }) => HookResult
@@ -504,6 +509,44 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const json = this.cleanJSON(value)
     await this.callHook('archive:done', { data: json, event })
     return json
+  }
+
+  /**
+   * Archive multiple model instances
+   * @param ids array of instance ids
+   * @param archive whether to archive or unarchive
+   * @param userId user id
+   * @param event incoming request
+   */
+  async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
+    const _ids = ids.map(useObjectId)
+    await this.callHook('bulkArchive:before', { ids, _ids, event })
+    for (let i = 0; i < ids.length; i++)
+      await this.callHook('archive:before', { id: ids[i], _id: _ids[i]!, event })
+
+    await this.callHookDocuments('archive', _ids, event)
+
+    const data: Schema = { deletedAt: archive ? new Date() : undefined }
+    if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
+
+    for (let i = 0; i < ids.length; i++)
+      await this.callHook('archive:after', { id: ids[i], _id: _ids[i]!, data, event })
+    await this.callHook('bulkArchive:after', { ids, _ids, data, event })
+
+    await this.collection.updateMany({ _id: { $in: _ids } } as any, { $set: data } as any)
+
+    const documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
+    const results = documents.map(d => this.cleanJSON(d))
+    const updatedIds = new Set(results.map(j => j.id?.toString()))
+    const errors = [
+      { data: { ids: _ids.reduce<string[]>((acc, id) => updatedIds.has(id.toString()) ? acc : [...acc, id.toString()], []) }, error: 'Document not found' }
+    ]
+
+    for (const json of results)
+      await this.callHook('archive:done', { data: json, event })
+    await this.callHook('bulkArchive:done', { data: results, event, errors })
+
+    return { results, errors }
   }
 
   /**
