@@ -14,6 +14,9 @@
       <button @click="bulkCreate(true)">
         + Bulk create (partial fail)
       </button>
+      <button @click="bulkDelete">
+        - Bulk delete (top 3)
+      </button>
       <json-list
         :items="todos"
         :schema="schema"
@@ -182,6 +185,17 @@ const bulkCreate = msgWrapper(async (fail = false) => {
     ]
   })
   todos.value.push(...data.results)
+  return data
+})
+
+const bulkDelete = msgWrapper(async () => {
+  const ids = todos.value.slice(0, 3).map(t => t.id)
+  if (!ids.length) return
+  const data = await $fetch<{ deletedCount: number }>('/api/todos/bulk', {
+    method: 'DELETE',
+    body: { ids }
+  })
+  todos.value = todos.value.filter(t => !ids.includes(t.id))
   return data
 })
 

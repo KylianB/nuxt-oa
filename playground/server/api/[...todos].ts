@@ -3,7 +3,7 @@ import { consola } from 'consola'
 import type { H3Event } from 'h3'
 import { useOaModel, useOaModelAjv } from '../../../src/runtime/server/helpers/model'
 import { createOaRouter, oaHandler } from '../../../src/runtime/server/helpers/router'
-import { useArchive, useCreate, useBulkCreate, useDelete, useGetAll, useUpdate } from '../../../src/runtime/server/helpers/controllers'
+import { useArchive, useCreate, useBulkCreate, useBulkDelete, useDelete, useGetAll, useUpdate } from '../../../src/runtime/server/helpers/controllers'
 import { keywords } from '~/ajv-keywords'
 
 const { addKeywords } = useOaModelAjv() // need to be called before any useOaModel()
@@ -28,7 +28,11 @@ Todo.hook('create:after', ({ data }) => setReadOnlyProp(data))
 
 Todo.hook('update:after', ({ data }) => setReadOnlyProp(data))
 Todo.hook('archive:done', ({ event }) => consola.log(`Todo #${event?.context.params?.id} archived`))
-Todo.hook('update:document', ({ document }) => consola.log(`Todo mongodb document (from findOne) => ${document}`))
+Todo.hook('update:document', ({ document }) => consola.log(`Todo mongodb document (from findOne) => ${JSON.stringify(document)}`))
+Todo.hook('delete:document', ({ document }) => consola.log(`Todo mongodb document deleted => ${JSON.stringify(document)}`))
+Todo.hook('bulkDelete:documents', ({ documents }) => consola.log(`Todo mongodb documents deleted => ${JSON.stringify(documents)}`))
+Todo.hook('delete:done', ({ data }) => consola.log(`Todo #${data?.id} deleted`))
+Todo.hook('bulkDelete:done', ({ data }) => consola.log(`Todos #[${data?.ids}] deleted`))
 
 const log = oaHandler((ev: H3Event) => {
   consola.log('log::', ev.node.req.method)
@@ -45,3 +49,4 @@ export default createOaRouter('/api/todos')
   .post('/:id/archive', auth, useArchive(Todo))
   .put('/:id', auth, useUpdate(Todo))
   .delete('/:id', auth, useDelete(Todo))
+  .delete('/bulk', auth, useBulkDelete(Todo))

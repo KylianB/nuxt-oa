@@ -33,6 +33,7 @@ type HookResult = Promise<void> | void
 type HookArgData = { data: Schema }
 type HookArgDataArray = { data: Schema[] }
 type HookArgDoc = { document?: WithId<Document> | null }
+type HookArgDocs = { documents: WithId<Document>[] }
 type HookArgEv = { event?: H3Event }
 type HookArgIds = { id: string | ObjectId | undefined, _id: ObjectId }
 type HookArgErrors = { errors: { data?: Schema, error: unknown }[] }
@@ -58,6 +59,9 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'delete:before': (d: HookArgEv & HookArgIds) => HookResult
   'delete:document': (d: HookArgDoc & HookArgEv) => HookResult
   'delete:done': (d: HookArgData & HookArgEv & { deletedCount: number }) => HookResult
+  'bulkDelete:before': (d: HookArgEv & HookArgIdsArray) => HookResult
+  'bulkDelete:documents': (d: HookArgDocs & HookArgEv) => HookResult
+  'bulkDelete:done': (d: HookArgData & HookArgEv) => HookResult
 }
 
 export function cleanSchema(schema: Schema): Schema {
@@ -293,6 +297,42 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * Transform single action string to bulk action string
+   * @param action
+   * @returns action string
+   */
+  private bulkAction(action: 'update' | 'archive' | 'delete') {
+    if (action === 'update') return 'bulkUpdate'
+    if (action === 'archive') return 'bulkArchive'
+    return 'bulkDelete'
+  }
+
+  /**
+   * Retrieve mongodb documents if one or more hooks '[action]:document' are set
+   * @param action
+   * @param _ids documents id
+   * @param event incoming request
+   * @returns document
+   */
+  private async callHookDocuments(action: 'update' | 'archive' | 'delete', _ids: ObjectId[], event?: H3Event): Promise<WithId<OaDbItem<T>>[] | null> {
+    let documents: WithId<OaDbItem<T>>[] | null = null
+    const docHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${action}:document`, {}))
+    const docsHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${this.bulkAction(action)}:documents`, {}))
+
+    if (!docHooks.length && !docsHooks.length) return null
+    documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
+    const promises: (void | Promise<void>)[] = []
+    // Call single document hooks
+    for (const document of documents ?? []) {
+      promises.push(...docHooks.map(caller => caller({ document, event })))
+    }
+    // Call bulk documents hooks
+    promises.push(...docsHooks.map(caller => caller({ documents, event })))
+    await Promise.all(promises)
+    return documents
+  }
+
+  /**
    * Create data helper
    * @param d body (data from user)
    * @param readOnlyData data from application logic
@@ -479,6 +519,27 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const { deletedCount } = await this.collection.deleteOne({ _id } as any)
 
     await this.callHook('delete:done', { data: { id }, deletedCount, event })
+    return { deletedCount }
+  }
+
+  /**
+   * Delete multiple model instances
+   * @param ids array of instance ids
+   * @param event incoming request
+   */
+  async bulkDelete(ids: (string | ObjectId | undefined)[], event?: H3Event) {
+    const _ids = ids.map(useObjectId)
+    await this.callHook('bulkDelete:before', { ids, _ids, event })
+
+    for (let i = 0; i < ids.length; i++)
+      await this.callHook('delete:before', { id: ids[i], _id: _ids[i]!, event })
+    await this.callHookDocuments('delete', _ids, event)
+
+    const { deletedCount } = await this.collection.deleteMany({ _id: { $in: _ids } } as any)
+
+    for (let i = 0; i < ids.length; i++)
+      await this.callHook('delete:done', { data: { id: ids[i] }, deletedCount: 1, event })
+    await this.callHook('bulkDelete:done', { data: { ids: _ids }, event })
     return { deletedCount }
   }
 

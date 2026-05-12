@@ -235,3 +235,48 @@ export const useDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {}) =
     ...apiDoc
   })
 }
+
+export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
+  const { name } = model
+  const lowerName = name.toLowerCase()
+
+  return oaHandler(async (event: H3Event) => {
+    const { ids } = await readBody(event)
+    return await model.bulkDelete(ids, event)
+  }, {
+    tags: [name],
+    summary: `Delete many ${lowerName}`,
+    operationId: `deleteMany${name}`,
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              ids: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['ids']
+          }
+        }
+      }
+    },
+    responses: {
+      200: {
+        description: 'message if success',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                deletedCount: {
+                  type: 'number'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    ...apiDoc
+  })
+}
