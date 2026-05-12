@@ -87,6 +87,63 @@ export const useCreate = <T extends OaModelName>(model: Model<T>, apiDoc = {}) =
   })
 }
 
+export const useBulkCreate = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
+  const { name } = model
+  const lowerName = name.toLowerCase()
+
+  return oaHandler(async (event: H3Event) => {
+    const body = await readBody(event)
+    return await model.bulkCreate(body, useUserId(event), null, event)
+  }, {
+    tags: [name],
+    summary: `Bulk create ${lowerName}`,
+    operationId: `bulkCreate${name}`,
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'array',
+            items: {
+              $ref: `#/components/schemas/${name}`
+            }
+          }
+        }
+      }
+    },
+    responses: {
+      200: {
+        description: `Results and potential errors for ${lowerName} creation.`,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                results: {
+                  type: 'array',
+                  items: {
+                    $ref: `#/components/schemas/${name}`
+                  }
+                },
+                errors: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      data: { $ref: `#/components/schemas/${name}` },
+                      error: { type: 'object' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    ...apiDoc
+  })
+}
+
 export const useUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
   const { name } = model
   const lowerName = name.toLowerCase()

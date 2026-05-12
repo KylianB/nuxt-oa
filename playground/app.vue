@@ -8,6 +8,12 @@
       <button @click="openTodo({ id: 'new', text: '' })">
         + Add a todo
       </button>
+      <button @click="bulkCreate(false)">
+        + Bulk create (3 todos)
+      </button>
+      <button @click="bulkCreate(true)">
+        + Bulk create (partial fail)
+      </button>
       <json-list
         :items="todos"
         :schema="schema"
@@ -110,20 +116,22 @@ onMounted(async () => {
 
 const randStr = (base = 36) => Math.random().toString(base).slice(3, 9)
 
-const msgWrapper = <T extends object>(func: (arg: T) => Promise<unknown>, finallyFunc?: () => unknown) => async (d: T) => {
-  msg.value = null
-  msgColor.value = 'green'
-  try {
-    const data = await func(d)
-    msg.value = JSON.stringify(data, null, ' ') || ''
-  } catch (error) {
-    msgColor.value = 'red'
-    msg.value = error instanceof Error ? error.message : String(error)
-    if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'data' in error.data) {
-      msg.value += '\n' + JSON.stringify(error.data.data, null, ' ')
+function msgWrapper<T>(func: (arg: T) => Promise<unknown>, finallyFunc?: () => unknown) {
+  return async (d: T) => {
+    msg.value = null
+    msgColor.value = 'green'
+    try {
+      const data = await func(d)
+      msg.value = JSON.stringify(data, null, ' ') || ''
+    } catch (error) {
+      msgColor.value = 'red'
+      msg.value = error instanceof Error ? error.message : String(error)
+      if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'data' in error.data) {
+        msg.value += '\n' + JSON.stringify(error.data.data, null, ' ')
+      }
+    } finally {
+      finallyFunc?.()
     }
-  } finally {
-    finallyFunc?.()
   }
 }
 
@@ -161,6 +169,19 @@ const archiveTodo = msgWrapper(async ({ id, deletedAt }: OaTodo) => {
 const rmTodo = msgWrapper(async ({ id }: OaTodo) => {
   const data = await $fetch('/api/todos/' + id, { method: 'DELETE' })
   todos.value.splice(todos.value.findIndex((t: OaTodo) => t.id === id), 1)
+  return data
+})
+
+const bulkCreate = msgWrapper(async (fail = false) => {
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: [
+      { text: 'Bulk 1 ' + randStr() },
+      { text: fail ? 'no' : 'Bulk 2 ' + randStr() },
+      { text: 'Bulk 3 ' + randStr() }
+    ]
+  })
+  todos.value.push(...data.results)
   return data
 })
 

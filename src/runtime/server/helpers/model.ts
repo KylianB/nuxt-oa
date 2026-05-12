@@ -31,9 +31,11 @@ type OaSchema<T extends OaModelName> = { properties: Schema, encryptedProperties
 
 type HookResult = Promise<void> | void
 type HookArgData = { data: Schema }
+type HookArgDataArray = { data: Schema[] }
 type HookArgDoc = { document?: WithId<Document> | null }
 type HookArgEv = { event?: H3Event }
 type HookArgIds = { id: string | ObjectId | undefined, _id: ObjectId }
+type HookArgErrors = { errors: { data?: Schema, error: unknown }[] }
 export interface ModelNuxtOaHooks<T extends OaModelName> {
   'collection:ready': (d: { collection: Collection<OaDbItem<T>>, dbName: string, defaultDbName: string }) => HookResult
   'collection:before': (d: { setDb: (dbName: string) => void, defaultDbName: string }) => HookResult
@@ -42,6 +44,9 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'create:before': (d: HookArgData & HookArgEv) => HookResult
   'create:after': (d: HookArgData & HookArgEv) => HookResult
   'create:done': (d: HookArgData & HookArgEv) => HookResult
+  'bulkCreate:before': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkCreate:after': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
+  'bulkCreate:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'update:before': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
   'update:document': (d: HookArgDoc & HookArgEv) => HookResult
   'update:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
@@ -288,19 +293,18 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
-   * Create a new model instance
+   * Create data helper
    * @param d body (data from user)
-   * @param userId user id
    * @param readOnlyData data from application logic
    * @param event incoming request
+   * @param by user id
+   * @param at timestamp
    */
-  async create(d: OptionalUnlessRequiredId<OaDbItem<T>>, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+  async createHelper(d: OptionalUnlessRequiredId<OaDbItem<T>>, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, by?: ObjectId | null, at = new Date()) {
     await this.callHook('create:before', { data: d, event })
 
     this.validate(d)
     const data = readOnlyData ? { ...d, ...readOnlyData } : d
-    const at = new Date()
-    const by = userId ? useObjectId(userId) : null
     if (this.timestamps.createdAt) data.createdAt = at
     if (this.timestamps.updatedAt) data.updatedAt = at
     if (this.userstamps.createdBy && by) data.createdBy = by
@@ -309,11 +313,57 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     await this.callHook('create:after', { data, event })
 
     this.encrypt(data)
-    const { insertedId } = await this.collection.insertOne(data)
+    return data
+  }
 
+  /**
+   * Create a new model instance
+   * @param d body (data from user)
+   * @param userId user id
+   * @param readOnlyData data from application logic
+   * @param event incoming request
+   */
+  async create(d: OptionalUnlessRequiredId<OaDbItem<T>>, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+    const by = userId ? useObjectId(userId) : null
+    const data = await this.createHelper(d, readOnlyData, event, by)
+    const { insertedId } = await this.collection.insertOne(data)
     const json = this.cleanJSON({ _id: insertedId, ...data })
     await this.callHook('create:done', { data: json, event })
     return json
+  }
+
+  /**
+   * Create multiple model instances
+   * @param d array of bodies (data from user)
+   * @param userId user id
+   * @param readOnlyData data from application logic
+   * @param event incoming request
+   */
+  async bulkCreate(d: OptionalUnlessRequiredId<OaDbItem<T>>[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+    await this.callHook('bulkCreate:before', { data: d, event })
+    // Prepare data
+    const at = new Date()
+    const by = userId ? useObjectId(userId) : null
+    const data = await Promise.allSettled(d.map(d => this.createHelper(d, readOnlyData, event, by, at)))
+    // Sort results valid/invalid
+    const preparedData: OptionalUnlessRequiredId<OaDbItem<T>>[] = []
+    const errors: HookArgErrors['errors'] = []
+    for (let i = 0; i < data.length; i++) {
+      const result = data[i]!
+      if (result.status === 'fulfilled') preparedData.push(result.value)
+      else errors.push({ data: d[i], error: result.reason })
+    }
+    await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
+    // Insert valid data
+    let results: ReturnType<typeof this.cleanJSON>[] = []
+    if (preparedData.length) {
+      const { insertedIds } = await this.collection.insertMany(preparedData)
+      results = preparedData.map((data, i) => this.cleanJSON({ _id: insertedIds[i], ...data }))
+      for (const json of results) await this.callHook('create:done', { data: json, event })
+    }
+
+    await this.callHook('bulkCreate:done', { data: results, errors, event })
+    return { results, errors }
   }
 
   /**
