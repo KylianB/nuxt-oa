@@ -309,8 +309,8 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
     return await model.bulkDelete(ids, event)
   }, {
     tags: [name],
-    summary: `Delete many ${lowerName}`,
-    operationId: `deleteMany${name}`,
+    summary: `Bulk delete ${lowerName}`,
+    operationId: `bulkDelete${name}`,
     requestBody: {
       content: {
         'application/json': {
