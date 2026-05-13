@@ -389,12 +389,11 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     // Prepare data
     const at = new Date()
     const by = userId ? useObjectId(userId) : null
-    const data = await Promise.allSettled(d.map(d => this.createHelper(d, readOnlyData, event, by, at)))
+    const settled = await Promise.allSettled(d.map(item => this.createHelper(item, readOnlyData, event, by, at)))
     // Sort results valid/invalid
     const preparedData: OptionalUnlessRequiredId<OaDbItem<T>>[] = []
     const errors: HookArgErrors['errors'] = []
-    for (let i = 0; i < data.length; i++) {
-      const result = data[i]!
+    for (const [i, result] of settled.entries()) {
       if (result.status === 'fulfilled') preparedData.push(result.value)
       else errors.push({ data: d[i], error: result.reason })
     }
