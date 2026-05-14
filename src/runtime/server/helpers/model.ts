@@ -56,7 +56,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'bulkUpdate:before': (d: HookArgDataArray & HookArgEv) => HookResult
   'bulkUpdate:documents': (d: HookArgDocs & HookArgEv) => HookResult
   'bulkUpdate:after': (d: HookArgDataArray & HookArgEv) => HookResult
-  'bulkUpdate:done': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkUpdate:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'archive:before': (d: HookArgEv & HookArgIds) => HookResult
   'archive:document': (d: HookArgDoc & HookArgEv) => HookResult
   'archive:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
@@ -567,7 +567,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     for (const json of results) {
       await this.callHook('update:done', { data: json, event })
     }
-    await this.callHook('bulkUpdate:done', { data: results, event })
+    await this.callHook('bulkUpdate:done', { data: results, errors, event })
 
     if (!results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
 
