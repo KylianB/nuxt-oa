@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import type { KeywordDefinition, ValidateFunction } from 'ajv'
-import type { Collection, Document, Filter, ObjectId, OptionalUnlessRequiredId, WithId } from 'mongodb'
+import type { AnyBulkWriteOperation, Collection, Document, Filter, ObjectId, OptionalUnlessRequiredId, WithId } from 'mongodb'
 import { Hookable, type HookCallback, type HookKeys } from 'hookable'
 import { createError, type H3Event } from 'h3'
 import type { OaModels, OaModelName } from 'nuxt-oa'
@@ -53,6 +53,10 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'update:document': (d: HookArgDoc & HookArgEv) => HookResult
   'update:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
   'update:done': (d: HookArgData & HookArgEv) => HookResult
+  'bulkUpdate:before': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkUpdate:documents': (d: HookArgDocs & HookArgEv) => HookResult
+  'bulkUpdate:after': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkUpdate:done': (d: HookArgDataArray & HookArgEv) => HookResult
   'archive:before': (d: HookArgEv & HookArgIds) => HookResult
   'archive:document': (d: HookArgDoc & HookArgEv) => HookResult
   'archive:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
@@ -435,6 +439,44 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * Create update data object
+   * @param _id instance id
+   * @param d body (data from user)
+   * @param document document already found
+   * @param userId user id
+   * @param readOnlyData data from application logic
+   * @param event incoming request
+   * @param date update date
+   * @returns update data object
+   */
+  private async getUpdateData(_id: ObjectId, d: Partial<OaDbItem<T> & Schema>, document: WithId<OaDbItem<T>> | null, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, date?: Date) {
+    const data = readOnlyData ? { ...d, ...readOnlyData } : { ...d }
+
+    if (this.timestamps.updatedAt) data.updatedAt = date ?? new Date()
+    if (this.userstamps.updatedBy && userId) data.updatedBy = useObjectId(userId)
+    if (data._id) delete data._id
+
+    const instance = (this.trackedProps.length || this.cipherKey)
+      ? document ?? await this.collection.findOne({ _id } as any)
+      : null
+    if (this.trackedProps.length && instance) {
+      const update: Record<string, unknown> = {}
+      for (const key of this.trackedProps) {
+        if (instance[key] !== undefined) update[key] = instance[key]
+      }
+      data.updates = [...(instance.updates || []), update]
+    }
+
+    await this.callHook('update:after', { id: _id.toString(), _id, data, event })
+
+    if (this.cipherKey && instance) {
+      data._iv = instance._iv
+      this.encrypt(data)
+    }
+    return data
+  }
+
+  /**
    * Update a model instance
    * @param id instance id
    * @param d body (data from user)
@@ -451,27 +493,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const document = existingDoc ?? await this.callHookDocument('update', _id, event)
 
     this.validate(d)
-    const data = readOnlyData ? { ...d, ...readOnlyData } : d
-    if (this.timestamps.updatedAt) data.updatedAt = new Date()
-    if (this.userstamps.updatedBy && userId) data.updatedBy = useObjectId(userId)
+    const data = await this.getUpdateData(_id, d, document, userId, readOnlyData, event)
 
-    const instance = (this.trackedProps.length || this.cipherKey)
-      ? document ?? await this.collection.findOne({ _id } as any)
-      : null
-    if (this.trackedProps.length && instance) {
-      const update: Record<string, unknown> = {}
-      for (const key of this.trackedProps) {
-        if (instance[key] !== undefined) update[key] = instance[key]
-      }
-      data.updates = [...(instance.updates || []), update]
-    }
-
-    await this.callHook('update:after', { id, _id, data, event })
-
-    if (this.cipherKey && instance) {
-      data._iv = instance._iv
-      this.encrypt(data)
-    }
     const value = await this.collection
       .findOneAndUpdate({ _id } as any, { $set: data }, { returnDocument: 'after' })
     if (!value) {
@@ -481,6 +504,74 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const json = this.cleanJSON(value)
     await this.callHook('update:done', { data: json, event })
     return json
+  }
+
+  /**
+   * Update multiple model instances
+   * @param u array of updates { id, data }
+   * @param userId user id
+   * @param readOnlyData data from application logic
+   * @param event incoming request
+   */
+  async bulkUpdate(u: { id: string | ObjectId, d: Partial<OaDbItem<T> & Schema> }[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+    const updates = u.map(u => ({ ...u, id: u.id.toString(), _id: useObjectId(u.id) }))
+    await this.callHook('bulkUpdate:before', { data: updates, event })
+    for (let i = 0; i < updates.length; i++) {
+      const update = updates[i]!
+      await this.callHook('update:before', { id: update.id, _id: update._id, data: update.d, event })
+    }
+
+    // Fetch all documents in ONE call
+    const _ids = updates.map(update => update._id)
+    const documents = await this.callHookDocuments('update', _ids, event) ?? await this.collection.find({ _id: { $in: _ids } } as any).toArray()
+    const documentsMap = new Map(documents.map(doc => [doc._id.toString(), doc]))
+
+    const at = new Date()
+    const settled = await Promise.allSettled(updates.map(async (update) => {
+      this.validate(update.d)
+      const document = documentsMap.get(update.id)
+      if (!document) throw new Error('Document not found')
+      const data = await this.getUpdateData(update._id, update.d, document, userId, readOnlyData, event, at)
+      return {
+        updateOne: {
+          filter: { _id: update._id } as any,
+          update: { $set: data }
+        }
+      }
+    }))
+    await this.callHook('bulkUpdate:after', { data: updates, event })
+
+    const bulkOps: AnyBulkWriteOperation<OaDbItem<T>>[] = []
+    const fulfilledIds: ObjectId[] = []
+    const errors: HookArgErrors['errors'] = []
+    for (const [i, result] of settled.entries()) {
+      if (result.status === 'fulfilled') {
+        bulkOps.push(result.value)
+        fulfilledIds.push(_ids[i]!)
+      } else {
+        if ('cause' in result.reason) {
+          errors.push({ data: { id: `${_ids[i]}`, ...result.reason.cause.data }, error: result.reason.cause.statusMessage })
+        } else {
+          errors.push({ data: { id: `${_ids[i]}` }, error: result.reason.message })
+        }
+      }
+    }
+
+    const results: ReturnType<typeof this.cleanJSON>[] = []
+    if (bulkOps.length) {
+      await this.collection.bulkWrite(bulkOps, { ordered: false })
+      const updatedDocuments = await this.collection.find({ _id: { $in: fulfilledIds } } as any).toArray()
+      for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
+    }
+
+    for (const json of results) {
+      await this.callHook('update:done', { data: json, event })
+    }
+    await this.callHook('bulkUpdate:done', { data: results, event })
+
+    if (!results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
+
+    return { results, errors }
   }
 
   /**

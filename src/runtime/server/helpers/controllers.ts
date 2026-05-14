@@ -172,6 +172,73 @@ export const useUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {}) =
   })
 }
 
+export const useBulkUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
+  const { name } = model
+  const lowerName = name.toLowerCase()
+
+  return oaHandler(async (event: H3Event) => {
+    const body = await readBody(event)
+    return await model.bulkUpdate(body, useUserId(event), null, event)
+  }, {
+    tags: [name],
+    summary: `Bulk update ${lowerName}`,
+    operationId: `bulkUpdate${name}`,
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                data: { $ref: `#/components/schemas/${name}` }
+              },
+              required: ['id', 'data']
+            }
+          }
+        }
+      }
+    },
+    responses: {
+      200: {
+        description: `Results and potential errors for ${lowerName} update.`,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                results: {
+                  type: 'array',
+                  items: {
+                    $ref: `#/components/schemas/${name}`
+                  }
+                },
+                errors: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      data: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' }
+                        }
+                      },
+                      error: { type: 'string' }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    ...apiDoc
+  })
+}
+
 export const useArchive = <T extends OaModelName>(model: Model<T>, apiDoc = {}) => {
   const { name } = model
   const lowerName = name.toLowerCase()

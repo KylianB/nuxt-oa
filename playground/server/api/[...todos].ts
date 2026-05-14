@@ -3,7 +3,7 @@ import { consola } from 'consola'
 import type { H3Event } from 'h3'
 import { useOaModel, useOaModelAjv } from '../../../src/runtime/server/helpers/model'
 import { createOaRouter, oaHandler } from '../../../src/runtime/server/helpers/router'
-import { useArchive, useCreate, useBulkCreate, useBulkDelete, useBulkArchive, useDelete, useGetAll, useUpdate } from '../../../src/runtime/server/helpers/controllers'
+import { useArchive, useCreate, useBulkCreate, useBulkDelete, useBulkArchive, useDelete, useGetAll, useUpdate, useBulkUpdate } from '../../../src/runtime/server/helpers/controllers'
 import { keywords } from '~/ajv-keywords'
 
 const { addKeywords } = useOaModelAjv() // need to be called before any useOaModel()
@@ -48,6 +48,7 @@ export default createOaRouter('/api/todos')
   .post('/bulk', auth, useBulkCreate(Todo))
   .post('/bulk/archive', auth, useBulkArchive(Todo))
   .post('/:id/archive', auth, useArchive(Todo))
+  .put('/bulk', auth, useBulkUpdate(Todo))
   .put('/:id', auth, useUpdate(Todo))
   .delete('/:id', auth, useDelete(Todo))
   .delete('/bulk', auth, useBulkDelete(Todo))

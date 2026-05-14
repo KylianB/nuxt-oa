@@ -13,17 +13,19 @@
         :schema="schema"
       >
         <template #table-header="{ sortBy, sortDesc }">
-          <div :style="{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '20px', userSelect: 'none' }">
+          <div :style="{ display: 'grid', gridTemplateColumns: '100px 40px 1fr', gap: '20px', userSelect: 'none' }">
             <span>Text {{ sortBy === 'text' ? (sortDesc ? '↑' : '↓') : '' }}</span>
+            <span>Cost</span>
             <span>Actions</span>
           </div>
         </template>
         <template #item="{ item: t, view }">
           <div
             class="item"
-            :style="view === 'card' ? {} : { display: 'grid', gridTemplateColumns: '100px 1fr', alignItems: 'center', gap: '20px' }"
+            :style="view === 'card' ? {} : { display: 'grid', gridTemplateColumns: '100px 40px 1fr', alignItems: 'center', gap: '20px' }"
           >
             <p><b>{{ t.text }}</b></p>
+            <p>{{ t.cost }}</p>
             <div>
               <button
                 :disabled="t.deletedAt"
@@ -94,6 +96,12 @@
       </button>
       <button @click="bulkArchiveTest(false)">
         Bulk unarchive (top 3 + 1 fail)
+      </button>
+      <button @click="bulkUpdateTest(false)">
+        ~ Bulk update (top 3)
+      </button>
+      <button @click="bulkUpdateTest(true)">
+        ~ Bulk update (top 3 / 1 fail + 1 invalid)
       </button>
     </template>
     <pre
@@ -212,6 +220,23 @@ const bulkArchiveTest = msgWrapper(async (archive = true) => {
 
   const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
     method: 'POST', body: { ids: allIds, archive }
+  })
+  for (const updated of data.results) {
+    const index = todos.value.findIndex(t => t.id === updated.id)
+    if (index !== -1) todos.value.splice(index, 1, updated)
+  }
+  return data
+})
+
+const bulkUpdateTest = msgWrapper(async (fail = false) => {
+  const body = todos.value.slice(0, 3).map((todo, i) => ({ id: todo.id, d: { text: todo.text, cost: (todo.cost ?? 0) + 1 } }))
+  if (!body.length) return
+  if (fail) {
+    body.push({ id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'no', cost: 0 } }) // Don't exist
+    if (body.length > 1 && body[1]) body[1].d.cost = 260 // invalid, max is 250
+  }
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'PUT', body
   })
   for (const updated of data.results) {
     const index = todos.value.findIndex(t => t.id === updated.id)
