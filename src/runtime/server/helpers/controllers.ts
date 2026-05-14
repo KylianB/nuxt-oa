@@ -297,7 +297,7 @@ export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = 
     },
     responses: {
       200: {
-        description: `List of archived ${lowerName}.`,
+        description: `Results and potential errors for ${lowerName} archive.`,
         content: {
           'application/json': {
             schema: {
