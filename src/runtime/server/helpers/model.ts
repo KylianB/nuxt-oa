@@ -407,7 +407,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (preparedData.length) {
       const { insertedIds } = await this.collection.insertMany(preparedData)
       results = preparedData.map((data, i) => this.cleanJSON({ _id: insertedIds[i], ...data }))
-      for (const json of results) await this.callHook('create:done', { data: json, event })
+      await Promise.allSettled(results.map((json, i) =>
+        this.callHook('create:done', { data: json, event })
+      ))
     }
 
     await this.callHook('bulkCreate:done', { data: results, errors, event })
@@ -516,10 +518,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkUpdate(u: { id: string | ObjectId, d: Partial<OaDbItem<T> & Schema> }[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
     const updates = u.map(u => ({ ...u, id: u.id.toString(), _id: useObjectId(u.id) }))
     await this.callHook('bulkUpdate:before', { data: updates, event })
-    for (let i = 0; i < updates.length; i++) {
-      const update = updates[i]!
-      await this.callHook('update:before', { id: update.id, _id: update._id, data: update.d, event })
-    }
+    await Promise.allSettled(updates.map((update, i) =>
+      this.callHook('update:before', { id: update.id, _id: update._id, data: update.d, event })
+    ))
 
     // Fetch all documents in ONE call
     const _ids = updates.map(update => update._id)
@@ -564,9 +565,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
     }
 
-    for (const json of results) {
-      await this.callHook('update:done', { data: json, event })
-    }
+    await Promise.allSettled(results.map(json =>
+      this.callHook('update:done', { data: json, event })
+    ))
     await this.callHook('bulkUpdate:done', { data: results, errors, event })
 
     if (!results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
@@ -611,16 +612,18 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
     const _ids = ids.map(useObjectId)
     await this.callHook('bulkArchive:before', { ids, _ids, event })
-    for (let i = 0; i < ids.length; i++)
-      await this.callHook('archive:before', { id: ids[i], _id: _ids[i]!, event })
+    await Promise.allSettled(ids.map((id, i) =>
+      this.callHook('archive:before', { id, _id: _ids[i]!, event })
+    ))
 
     await this.callHookDocuments('archive', _ids, event)
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
     if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
 
-    for (let i = 0; i < ids.length; i++)
-      await this.callHook('archive:after', { id: ids[i], _id: _ids[i]!, data, event })
+    await Promise.allSettled(ids.map((id, i) =>
+      this.callHook('archive:after', { id, _id: _ids[i]!, data, event })
+    ))
     await this.callHook('bulkArchive:after', { ids, _ids, data, event })
 
     await this.collection.updateMany({ _id: { $in: _ids } } as any, { $set: data } as any)
@@ -632,8 +635,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       { data: { ids: _ids.reduce<string[]>((acc, id) => updatedIds.has(id.toString()) ? acc : [...acc, id.toString()], []) }, error: 'Document not found' }
     ]
 
-    for (const json of results)
-      await this.callHook('archive:done', { data: json, event })
+    await Promise.allSettled(results.map(json =>
+      this.callHook('archive:done', { data: json, event })
+    ))
     await this.callHook('bulkArchive:done', { data: results, event, errors })
 
     return { results, errors }
@@ -663,15 +667,17 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkDelete(ids: (string | ObjectId | undefined)[], event?: H3Event) {
     const _ids = ids.map(useObjectId)
     await this.callHook('bulkDelete:before', { ids, _ids, event })
+    await Promise.allSettled(ids.map((id, i) =>
+      this.callHook('delete:before', { id: ids[i], _id: _ids[i]!, event })
+    ))
 
-    for (let i = 0; i < ids.length; i++)
-      await this.callHook('delete:before', { id: ids[i], _id: _ids[i]!, event })
     await this.callHookDocuments('delete', _ids, event)
 
     const { deletedCount } = await this.collection.deleteMany({ _id: { $in: _ids } } as any)
 
-    for (let i = 0; i < ids.length; i++)
-      await this.callHook('delete:done', { data: { id: ids[i] }, deletedCount: 1, event })
+    await Promise.allSettled(ids.map((id, i) =>
+      this.callHook('delete:done', { data: { id: ids[i] }, deletedCount: 1, event })
+    ))
     await this.callHook('bulkDelete:done', { data: { ids: _ids }, event })
     return { deletedCount }
   }
