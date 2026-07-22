@@ -192,9 +192,9 @@ export const useBulkUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {
               type: 'object',
               properties: {
                 id: { type: 'string' },
-                data: { $ref: `#/components/schemas/${name}` }
+                d: { $ref: `#/components/schemas/${name}` }
               },
-              required: ['id', 'data']
+              required: ['id', 'd']
             }
           }
         }
