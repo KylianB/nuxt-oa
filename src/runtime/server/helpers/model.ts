@@ -70,7 +70,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'delete:done': (d: HookArgData & HookArgEv & { deletedCount: number }) => HookResult
   'bulkDelete:before': (d: HookArgEv & HookArgIdsArray) => HookResult
   'bulkDelete:documents': (d: HookArgDocs & HookArgEv) => HookResult
-  'bulkDelete:done': (d: HookArgData & HookArgEv) => HookResult
+  'bulkDelete:done': (d: HookArgData & HookArgEv & HookArgErrors) => HookResult
 }
 
 export function cleanSchema(schema: Schema): Schema {
@@ -342,6 +342,41 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * Safely parse an id, returning null instead of throwing on a malformed id
+   * @param id
+   */
+  private tryObjectId(id: string | ObjectId | undefined): ObjectId | null {
+    try {
+      return useObjectId(id)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Extract a readable message from a rejected settled result
+   * @param reason
+   */
+  private errorMessage(reason: unknown): unknown {
+    return reason instanceof Error ? reason.message : reason
+  }
+
+  /**
+   * Normalize a rejection (thrown validation error, hook error, malformed id, ...) into an error entry
+   * @param reason
+   */
+  private toErrorEntry(reason: unknown): { data?: Schema, error: unknown } {
+    if (reason && typeof reason === 'object' && 'cause' in reason) {
+      const cause = (reason as { cause?: unknown }).cause
+      if (cause && typeof cause === 'object') {
+        const { data, statusMessage } = cause as { data?: Schema, statusMessage?: unknown }
+        return { data, error: statusMessage ?? this.errorMessage(reason) }
+      }
+    }
+    return { error: this.errorMessage(reason) }
+  }
+
+  /**
    * Create data helper
    * @param d body (data from user)
    * @param readOnlyData data from application logic
@@ -516,11 +551,32 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkUpdate(u: { id: string | ObjectId, d: Partial<OaDbItem<T> & Schema> }[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
-    const updates = u.map(u => ({ ...u, id: u.id.toString(), _id: useObjectId(u.id) }))
-    await this.callHook('bulkUpdate:before', { data: updates, event })
-    await Promise.allSettled(updates.map((update, i) =>
+    const errors: HookArgErrors['errors'] = []
+    // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const parsed: { id: string, _id: ObjectId, d: Partial<OaDbItem<T> & Schema> }[] = []
+    for (const { id, d } of u) {
+      const _id = this.tryObjectId(id)
+      if (!_id) {
+        errors.push({ data: { id: `${id}`, ...d }, error: 'Bad id' })
+        continue
+      }
+      parsed.push({ id: id.toString(), _id, d })
+    }
+
+    await this.callHook('bulkUpdate:before', { data: parsed, event })
+
+    // Isolate before-hook rejections instead of silently discarding them
+    const beforeSettled = await Promise.allSettled(parsed.map(update =>
       this.callHook('update:before', { id: update.id, _id: update._id, data: update.d, event })
     ))
+    const updates = parsed.filter((update, i) => {
+      const result = beforeSettled[i]!
+      if (result.status === 'rejected') {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: { id: update.id, ...data }, error })
+      }
+      return result.status === 'fulfilled'
+    })
 
     // Fetch all documents in ONE call
     const _ids = updates.map(update => update._id)
@@ -544,17 +600,13 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
     const bulkOps: AnyBulkWriteOperation<OaDbItem<T>>[] = []
     const fulfilledIds: ObjectId[] = []
-    const errors: HookArgErrors['errors'] = []
     for (const [i, result] of settled.entries()) {
       if (result.status === 'fulfilled') {
         bulkOps.push(result.value)
         fulfilledIds.push(_ids[i]!)
       } else {
-        if ('cause' in result.reason) {
-          errors.push({ data: { id: `${_ids[i]}`, ...result.reason.cause.data }, error: result.reason.cause.statusMessage })
-        } else {
-          errors.push({ data: { id: `${_ids[i]}` }, error: result.reason.message })
-        }
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: { id: `${_ids[i]}`, ...data }, error })
       }
     }
 
@@ -610,30 +662,64 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
-    const _ids = ids.map(useObjectId)
-    await this.callHook('bulkArchive:before', { ids, _ids, event })
-    await Promise.allSettled(ids.map((id, i) =>
-      this.callHook('archive:before', { id, _id: _ids[i]!, event })
-    ))
+    const errors: HookArgErrors['errors'] = []
+    // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
+    for (const id of ids) {
+      const _id = this.tryObjectId(id)
+      if (!_id) {
+        errors.push({ data: { id: `${id}` }, error: 'Bad id' })
+        continue
+      }
+      parsed.push({ id, _id })
+    }
 
-    await this.callHookDocuments('archive', _ids, event)
+    await this.callHook('bulkArchive:before', { ids, _ids: parsed.map(p => p._id), event })
+
+    // Isolate before-hook rejections instead of silently discarding them
+    const beforeSettled = await Promise.allSettled(parsed.map(p =>
+      this.callHook('archive:before', { id: p.id, _id: p._id, event })
+    ))
+    let entries = parsed.filter((p, i) => {
+      const result = beforeSettled[i]!
+      if (result.status === 'rejected') {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: { id: `${p.id}`, ...data }, error })
+      }
+      return result.status === 'fulfilled'
+    })
+
+    await this.callHookDocuments('archive', entries.map(p => p._id), event)
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
     if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
 
-    await Promise.allSettled(ids.map((id, i) =>
-      this.callHook('archive:after', { id, _id: _ids[i]!, data, event })
+    // Isolate after-hook rejections instead of silently discarding them
+    const afterSettled = await Promise.allSettled(entries.map(p =>
+      this.callHook('archive:after', { id: p.id, _id: p._id, data, event })
     ))
-    await this.callHook('bulkArchive:after', { ids, _ids, data, event })
+    entries = entries.filter((p, i) => {
+      const result = afterSettled[i]!
+      if (result.status === 'rejected') {
+        const { data: errData, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: { id: `${p.id}`, ...errData }, error })
+      }
+      return result.status === 'fulfilled'
+    })
+    await this.callHook('bulkArchive:after', { ids, _ids: entries.map(p => p._id), data, event })
 
-    await this.collection.updateMany({ _id: { $in: _ids } } as any, { $set: data } as any)
+    const results: ReturnType<typeof this.cleanJSON>[] = []
+    if (entries.length) {
+      const validIds = entries.map(p => p._id)
+      await this.collection.updateMany({ _id: { $in: validIds } } as any, { $set: data } as any)
 
-    const documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
-    const results = documents.map(d => this.cleanJSON(d))
-    const updatedIds = new Set(results.map(j => j.id?.toString()))
-    const errors = [
-      { data: { ids: _ids.reduce<string[]>((acc, id) => updatedIds.has(id.toString()) ? acc : [...acc, id.toString()], []) }, error: 'Document not found' }
-    ]
+      const documents = await this.collection.find({ _id: { $in: validIds } } as any).toArray()
+      results.push(...documents.map(d => this.cleanJSON(d)))
+      const updatedIds = new Set(results.map(j => j.id?.toString()))
+      for (const p of entries) {
+        if (!updatedIds.has(p._id.toString())) errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
+      }
+    }
 
     await Promise.allSettled(results.map(json =>
       this.callHook('archive:done', { data: json, event })
@@ -665,21 +751,46 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkDelete(ids: (string | ObjectId | undefined)[], event?: H3Event) {
-    const _ids = ids.map(useObjectId)
-    await this.callHook('bulkDelete:before', { ids, _ids, event })
-    await Promise.allSettled(ids.map((id, i) =>
-      this.callHook('delete:before', { id: ids[i], _id: _ids[i]!, event })
+    const errors: HookArgErrors['errors'] = []
+    // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
+    for (const id of ids) {
+      const _id = this.tryObjectId(id)
+      if (!_id) {
+        errors.push({ data: { id: `${id}` }, error: 'Bad id' })
+        continue
+      }
+      parsed.push({ id, _id })
+    }
+
+    await this.callHook('bulkDelete:before', { ids, _ids: parsed.map(p => p._id), event })
+
+    // Isolate before-hook rejections instead of silently discarding them
+    const beforeSettled = await Promise.allSettled(parsed.map(p =>
+      this.callHook('delete:before', { id: p.id, _id: p._id, event })
     ))
+    const entries = parsed.filter((p, i) => {
+      const result = beforeSettled[i]!
+      if (result.status === 'rejected') {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: { id: `${p.id}`, ...data }, error })
+      }
+      return result.status === 'fulfilled'
+    })
 
-    await this.callHookDocuments('delete', _ids, event)
+    await this.callHookDocuments('delete', entries.map(p => p._id), event)
 
-    const { deletedCount } = await this.collection.deleteMany({ _id: { $in: _ids } } as any)
+    let deletedCount = 0
+    if (entries.length) {
+      const validIds = entries.map(p => p._id)
+      ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: validIds } } as any))
 
-    await Promise.allSettled(ids.map((id, i) =>
-      this.callHook('delete:done', { data: { id: ids[i] }, deletedCount: 1, event })
-    ))
-    await this.callHook('bulkDelete:done', { data: { ids: _ids }, event })
-    return { deletedCount }
+      await Promise.allSettled(entries.map(p =>
+        this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
+      ))
+    }
+    await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
+    return { deletedCount, errors }
   }
 
   private async cursorFindEncrypted(filter: Filter<OaDbItem<T>>, multiple: boolean) {

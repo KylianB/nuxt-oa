@@ -317,7 +317,7 @@ export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = 
                       data: {
                         type: 'object',
                         properties: {
-                          ids: { type: 'array', items: { type: 'string' } }
+                          id: { type: 'string' }
                         }
                       },
                       error: { type: 'string' }
@@ -393,7 +393,7 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
     },
     responses: {
       200: {
-        description: 'message if success',
+        description: `Deleted count and potential errors for ${lowerName} deletion.`,
         content: {
           'application/json': {
             schema: {
@@ -401,6 +401,21 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
               properties: {
                 deletedCount: {
                   type: 'number'
+                },
+                errors: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      data: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' }
+                        }
+                      },
+                      error: { type: 'string' }
+                    }
+                  }
                 }
               }
             }

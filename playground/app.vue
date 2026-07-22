@@ -206,7 +206,7 @@ const bulkCreate = msgWrapper(async (fail = false) => {
 const bulkDelete = msgWrapper(async () => {
   const ids = todos.value.slice(0, 3).map(t => t.id)
   if (!ids.length) return
-  const data = await $fetch<{ deletedCount: number }>('/api/todos/bulk', {
+  const data = await $fetch<{ deletedCount: number, errors: unknown[] }>('/api/todos/bulk', {
     method: 'DELETE',
     body: { ids }
   })
