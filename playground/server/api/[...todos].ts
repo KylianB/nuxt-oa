@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb'
 import { consola } from 'consola'
-import type { H3Event } from 'h3'
+import { createError, type H3Event } from 'h3'
 import { useOaModel, useOaModelAjv } from '../../../src/runtime/server/helpers/model'
 import { createOaRouter, oaHandler } from '../../../src/runtime/server/helpers/router'
 import { useArchive, useCreate, useBulkCreate, useBulkDelete, useBulkArchive, useDelete, useGetAll, useUpdate, useBulkUpdate } from '../../../src/runtime/server/helpers/controllers'
@@ -25,6 +25,14 @@ const setReadOnlyProp = (d: { readOnlyProp?: string, privateN?: number }) => {
 }
 
 Todo.hook('create:after', ({ data }) => setReadOnlyProp(data))
+
+// Demo: an `update:before` hook that rejects a single item — in bulkUpdate this now only
+// excludes that item (reported in `errors`) instead of being silently ignored for the whole batch.
+Todo.hook('update:before', ({ data }) => {
+  if (data.text === 'blocked') {
+    throw createError({ statusCode: 403, statusMessage: 'Todo text "blocked" is rejected by the update:before demo hook' })
+  }
+})
 
 Todo.hook('update:after', ({ data }) => setReadOnlyProp(data))
 Todo.hook('archive:done', ({ event }) => consola.log(`Todo #${event?.context.params?.id} archived`))

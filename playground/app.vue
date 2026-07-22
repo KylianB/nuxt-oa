@@ -88,20 +88,32 @@
       <button @click="bulkCreate(true)">
         + Bulk create (partial fail)
       </button>
-      <button @click="bulkDelete">
+      <button @click="bulkDelete(false)">
         - Bulk delete (top 3)
       </button>
-      <button @click="bulkArchiveTest">
-        Bulk archive (top 3 + 1 fail)
+      <button @click="bulkDelete(true)">
+        - Bulk delete (+ 1 malformed id)
       </button>
-      <button @click="bulkArchiveTest(false)">
-        Bulk unarchive (top 3 + 1 fail)
+      <button @click="bulkArchiveTest()">
+        Bulk archive (top 3 + 1 not found)
       </button>
-      <button @click="bulkUpdateTest(false)">
+      <button @click="bulkArchiveTest({ archive: false })">
+        Bulk unarchive (top 3 + 1 not found)
+      </button>
+      <button @click="bulkArchiveTest({ mode: 'malformed' })">
+        Bulk archive (+ 1 malformed id)
+      </button>
+      <button @click="bulkUpdateTest('ok')">
         ~ Bulk update (top 3)
       </button>
-      <button @click="bulkUpdateTest(true)">
-        ~ Bulk update (top 3 / 1 fail + 1 invalid)
+      <button @click="bulkUpdateTest('notfound')">
+        ~ Bulk update (top 3 / 1 not found + 1 invalid)
+      </button>
+      <button @click="bulkUpdateTest('malformed')">
+        ~ Bulk update (+ 1 malformed id)
+      </button>
+      <button @click="bulkUpdateTest('blocked')">
+        ~ Bulk update (+ 1 blocked by hook)
       </button>
     </template>
     <pre
@@ -203,9 +215,10 @@ const bulkCreate = msgWrapper(async (fail = false) => {
   return data
 })
 
-const bulkDelete = msgWrapper(async () => {
+const bulkDelete = msgWrapper(async (malformed = false) => {
   const ids = todos.value.slice(0, 3).map(t => t.id)
   if (!ids.length) return
+  if (malformed) ids.push('not-an-id') // invalid ObjectId format, isolated as an error instead of failing the whole batch
   const data = await $fetch<{ deletedCount: number, errors: unknown[] }>('/api/todos/bulk', {
     method: 'DELETE',
     body: { ids }
@@ -214,9 +227,11 @@ const bulkDelete = msgWrapper(async () => {
   return data
 })
 
-const bulkArchiveTest = msgWrapper(async (archive = true) => {
+const bulkArchiveTest = msgWrapper(async ({ archive = true, mode = 'notfound' }: { archive?: boolean, mode?: 'ok' | 'notfound' | 'malformed' } = {}) => {
   const ids = todos.value.slice(0, 3).map(t => t.id)
-  const allIds = [...ids, '63cf86ff1541f5505b' + randStr(16)]
+  const allIds = [...ids]
+  if (mode === 'notfound') allIds.push('63cf86ff1541f5505b' + randStr(16)) // valid format, but doesn't exist
+  if (mode === 'malformed') allIds.push('not-an-id') // invalid ObjectId format
 
   const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
     method: 'POST', body: { ids: allIds, archive }
@@ -228,12 +243,16 @@ const bulkArchiveTest = msgWrapper(async (archive = true) => {
   return data
 })
 
-const bulkUpdateTest = msgWrapper(async (fail = false) => {
-  const body = todos.value.slice(0, 3).map((todo, i) => ({ id: todo.id, d: { text: todo.text, cost: (todo.cost ?? 0) + 1 } }))
+const bulkUpdateTest = msgWrapper(async (mode: 'ok' | 'notfound' | 'malformed' | 'blocked' = 'ok') => {
+  const body = todos.value.slice(0, 3).map(todo => ({ id: todo.id, d: { text: todo.text, cost: (todo.cost ?? 0) + 1 } }))
   if (!body.length) return
-  if (fail) {
-    body.push({ id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'no', cost: 0 } }) // Don't exist
+  if (mode === 'notfound') {
+    body.push({ id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found', cost: 0 } }) // valid format & valid data, but doesn't exist
     if (body.length > 1 && body[1]) body[1].d.cost = 260 // invalid, max is 250
+  } else if (mode === 'malformed') {
+    body.push({ id: 'not-an-id', d: { text: 'no', cost: 0 } }) // invalid ObjectId format
+  } else if (mode === 'blocked' && body[0]) {
+    body[0].d.text = 'blocked' // rejected by the demo update:before hook, others still go through
   }
   const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
     method: 'PUT', body
