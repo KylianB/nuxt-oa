@@ -778,16 +778,25 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       return result.status === 'fulfilled'
     })
 
-    await this.callHookDocuments('delete', entries.map(p => p._id), event)
-
     let deletedCount = 0
     if (entries.length) {
       const validIds = entries.map(p => p._id)
+      // Know which ids actually exist before deleting, so per-id delete:done/errors reflect reality
+      const documents = await this.callHookDocuments('delete', validIds, event)
+        ?? await this.collection.find({ _id: { $in: validIds } } as any, { projection: { _id: 1 } }).toArray()
+      const existingIds = new Set(documents.map(doc => doc._id.toString()))
+
       ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: validIds } } as any))
 
-      await Promise.allSettled(entries.map(p =>
-        this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
-      ))
+      await Promise.allSettled(entries.map((p) => {
+        if (!existingIds.has(p._id.toString())) {
+          errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
+          return
+        }
+        return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
+      }))
+    } else {
+      await this.callHookDocuments('delete', [], event)
     }
     await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
     return { deletedCount, errors }
