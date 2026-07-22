@@ -355,10 +355,12 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
   /**
    * Extract a readable message from a rejected settled result
+   * Hooks are user-defined and may reject with anything (a string, a plain object, ...), not just an Error
    * @param reason
    */
-  private errorMessage(reason: unknown): unknown {
-    return reason instanceof Error ? reason.message : reason
+  private errorMessage(reason: unknown): string {
+    if (reason instanceof Error) return reason.message
+    return typeof reason === 'string' ? reason : String(reason)
   }
 
   /**
