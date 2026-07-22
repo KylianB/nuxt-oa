@@ -491,6 +491,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
     if (this.timestamps.updatedAt) data.updatedAt = date ?? new Date()
     if (this.userstamps.updatedBy && userId) data.updatedBy = useObjectId(userId)
+    // bulkUpdate callers may echo the whole document back, incl. _id — MongoDB rejects $set on an immutable _id
     if (data._id) delete data._id
 
     const instance = (this.trackedProps.length || this.cipherKey)
