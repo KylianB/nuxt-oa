@@ -88,11 +88,17 @@
       <button @click="bulkCreate(true)">
         + Bulk create (partial fail)
       </button>
+      <button @click="bulkCreateFullFail">
+        + Bulk create (full fail → 400)
+      </button>
       <button @click="bulkDelete(false)">
         - Bulk delete (top 3)
       </button>
       <button @click="bulkDelete(true)">
         - Bulk delete (+ 1 malformed id)
+      </button>
+      <button @click="bulkDeleteFullFail">
+        - Bulk delete (full fail → 400)
       </button>
       <button @click="bulkArchiveTest()">
         Bulk archive (top 3 + 1 not found)
@@ -102,6 +108,9 @@
       </button>
       <button @click="bulkArchiveTest({ mode: 'malformed' })">
         Bulk archive (+ 1 malformed id)
+      </button>
+      <button @click="bulkArchiveFullFail">
+        Bulk archive (full fail → 400)
       </button>
       <button @click="bulkUpdateTest('ok')">
         ~ Bulk update (top 3)
@@ -114,6 +123,9 @@
       </button>
       <button @click="bulkUpdateTest('blocked')">
         ~ Bulk update (+ 1 blocked by hook)
+      </button>
+      <button @click="bulkUpdateFullFail">
+        ~ Bulk update (full fail → 400)
       </button>
     </template>
     <pre
@@ -263,6 +275,44 @@ const bulkUpdateTest = msgWrapper(async (mode: 'ok' | 'notfound' | 'malformed' |
   }
   return data
 })
+
+// Every item fails (all invalid data) → bulkCreate now throws a 400 instead of a 200 with empty results
+const bulkCreateFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: [
+      { text: 'no' },
+      { text: 'x' }
+    ]
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkDelete now throws a 400 instead of a 200 with deletedCount: 0
+const bulkDeleteFullFail = msgWrapper(async () =>
+  await $fetch<{ deletedCount: number, errors: unknown[] }>('/api/todos/bulk', {
+    method: 'DELETE',
+    body: { ids: ['63cf86ff1541f5505b' + randStr(16), '63cf86ff1541f5505b' + randStr(16)] }
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkArchive now throws a 400 instead of a 200 with empty results
+const bulkArchiveFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
+    method: 'POST',
+    body: { ids: ['63cf86ff1541f5505b' + randStr(16), '63cf86ff1541f5505b' + randStr(16)], archive: true }
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkUpdate now throws a 400 instead of a 200 with empty results
+const bulkUpdateFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'PUT',
+    body: [
+      { id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found 1', cost: 0 } },
+      { id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found 2', cost: 0 } }
+    ]
+  })
+)
 
 const testWithRandomId = msgWrapper(async () =>
   await $fetch('/api/todos/63cf86ff1541f5505b' + randStr(16), { method: 'DELETE', body: { text: 'U-test' } })

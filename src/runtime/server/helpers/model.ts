@@ -448,6 +448,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     }
 
     await this.callHook('bulkCreate:done', { data: results, errors, event })
+
+    if (d.length && !results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
+
     return { results, errors }
   }
 
@@ -623,7 +626,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     ))
     await this.callHook('bulkUpdate:done', { data: results, errors, event })
 
-    if (!results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
+    if (u.length && !results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
 
     return { results, errors }
   }
@@ -727,6 +730,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     ))
     await this.callHook('bulkArchive:done', { data: results, event, errors })
 
+    if (ids.length && !results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
+
     return { results, errors }
   }
 
@@ -800,6 +805,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       await this.callHookDocuments('delete', [], event)
     }
     await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
+
+    if (ids.length && !deletedCount) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
+
     return { deletedCount, errors }
   }
 
