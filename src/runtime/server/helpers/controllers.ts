@@ -130,7 +130,7 @@ export const useBulkCreate = <T extends OaModelName>(model: Model<T>, apiDoc = {
                     type: 'object',
                     properties: {
                       data: { $ref: `#/components/schemas/${name}` },
-                      error: { type: 'object' }
+                      error: { type: 'string' }
                     }
                   }
                 }

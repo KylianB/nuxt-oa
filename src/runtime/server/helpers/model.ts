@@ -436,7 +436,10 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const errors: HookArgErrors['errors'] = []
     for (const [i, result] of settled.entries()) {
       if (result.status === 'fulfilled') preparedData.push(result.value)
-      else errors.push({ data: d[i], error: result.reason })
+      else {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: data ?? d[i], error })
+      }
     }
     await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
     // Insert valid data
