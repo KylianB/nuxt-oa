@@ -447,9 +447,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (preparedData.length) {
       const { insertedIds } = await this.collection.insertMany(preparedData)
       results = preparedData.map((data, i) => this.cleanJSON({ _id: insertedIds[i], ...data }))
-      await Promise.allSettled(results.map((json, i) =>
+      const doneSettled = await Promise.allSettled(results.map(json =>
         this.callHook('create:done', { data: json, event })
       ))
+      for (const [i, result] of doneSettled.entries()) {
+        if (result.status === 'rejected') {
+          const { data, error } = this.toErrorEntry(result.reason)
+          errors.push({ data: data ?? results[i], error })
+        }
+      }
     }
 
     await this.callHook('bulkCreate:done', { data: results, errors, event })
@@ -626,9 +632,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
     }
 
-    await Promise.allSettled(results.map(json =>
+    const updateDoneSettled = await Promise.allSettled(results.map(json =>
       this.callHook('update:done', { data: json, event })
     ))
+    for (const [i, result] of updateDoneSettled.entries()) {
+      if (result.status === 'rejected') {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: data ?? results[i], error })
+      }
+    }
     await this.callHook('bulkUpdate:done', { data: results, errors, event })
 
     if (u.length && !results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
@@ -730,9 +742,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       }
     }
 
-    await Promise.allSettled(results.map(json =>
+    const archiveDoneSettled = await Promise.allSettled(results.map(json =>
       this.callHook('archive:done', { data: json, event })
     ))
+    for (const [i, result] of archiveDoneSettled.entries()) {
+      if (result.status === 'rejected') {
+        const { data, error } = this.toErrorEntry(result.reason)
+        errors.push({ data: data ?? results[i], error })
+      }
+    }
     await this.callHook('bulkArchive:done', { data: results, event, errors })
 
     if (ids.length && !results.length) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
@@ -799,13 +817,19 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
       ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: validIds } } as any))
 
-      await Promise.allSettled(entries.map((p) => {
+      const doneSettled = await Promise.allSettled(entries.map((p) => {
         if (!existingIds.has(p._id.toString())) {
           errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
           return
         }
         return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
       }))
+      for (const [i, result] of doneSettled.entries()) {
+        if (result.status === 'rejected') {
+          const { data, error } = this.toErrorEntry(result.reason)
+          errors.push({ data: data ?? { id: `${entries[i]!.id}` }, error })
+        }
+      }
     } else {
       await this.callHookDocuments('delete', [], event)
     }
