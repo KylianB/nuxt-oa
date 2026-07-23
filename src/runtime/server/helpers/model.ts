@@ -55,7 +55,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'update:done': (d: HookArgData & HookArgEv) => HookResult
   'bulkUpdate:before': (d: HookArgDataArray & HookArgEv) => HookResult
   'bulkUpdate:documents': (d: HookArgDocs & HookArgEv) => HookResult
-  'bulkUpdate:after': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkUpdate:after': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'bulkUpdate:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'archive:before': (d: HookArgEv & HookArgIds) => HookResult
   'archive:document': (d: HookArgDoc & HookArgEv) => HookResult
@@ -63,7 +63,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'archive:done': (d: HookArgData & HookArgEv) => HookResult
   'bulkArchive:before': (d: HookArgEv & HookArgIdsArray) => HookResult
   'bulkArchive:documents': (d: HookArgDocs & HookArgEv) => HookResult
-  'bulkArchive:after': (d: HookArgData & HookArgEv & HookArgIdsArray) => HookResult
+  'bulkArchive:after': (d: HookArgData & HookArgEv & HookArgIdsArray & HookArgErrors) => HookResult
   'bulkArchive:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'delete:before': (d: HookArgEv & HookArgIds) => HookResult
   'delete:document': (d: HookArgDoc & HookArgEv) => HookResult
@@ -605,7 +605,6 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         }
       }
     }))
-    await this.callHook('bulkUpdate:after', { data: updates, event })
 
     const bulkOps: AnyBulkWriteOperation<OaDbItem<T>>[] = []
     const fulfilledIds: ObjectId[] = []
@@ -618,6 +617,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         errors.push({ data: { id: `${_ids[i]}`, ...data }, error })
       }
     }
+    await this.callHook('bulkUpdate:after', { data: updates, errors, event })
 
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (bulkOps.length) {
@@ -715,7 +715,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       }
       return result.status === 'fulfilled'
     })
-    await this.callHook('bulkArchive:after', { ids, _ids: entries.map(p => p._id), data, event })
+    await this.callHook('bulkArchive:after', { ids, _ids: entries.map(p => p._id), data, errors, event })
 
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (entries.length) {
