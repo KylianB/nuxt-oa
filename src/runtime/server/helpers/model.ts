@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import type { KeywordDefinition, ValidateFunction } from 'ajv'
-import type { AnyBulkWriteOperation, Collection, Document, Filter, ObjectId, OptionalUnlessRequiredId, WithId } from 'mongodb'
+import { MongoBulkWriteError } from 'mongodb'
+import type { AnyBulkWriteOperation, Collection, Document, Filter, ObjectId, OptionalUnlessRequiredId, WithId, WriteError } from 'mongodb'
 import { Hookable, type HookCallback, type HookKeys } from 'hookable'
 import { createError, type H3Event } from 'h3'
 import type { OaModels, OaModelName } from 'nuxt-oa'
@@ -386,6 +387,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * MongoDB reports `writeErrors` as a single WriteError or an array depending on driver version
+   * @param writeErrors
+   */
+  private normalizeWriteErrors(writeErrors: WriteError | readonly WriteError[] | undefined): WriteError[] {
+    if (!writeErrors) return []
+    return Array.isArray(writeErrors) ? [...writeErrors] : [writeErrors as WriteError]
+  }
+
+  /**
    * Run a per-item task via Promise.allSettled, pushing a normalized error entry for each rejection
    */
   private async settleWithErrors<Item, R>(opt: SettledWithErrorsOptions<Item, R>): Promise<R[]> {
@@ -463,10 +473,27 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     })
     await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
     // Insert valid data
-    let results: ReturnType<typeof this.cleanJSON>[] = []
+    const results: ReturnType<typeof this.cleanJSON>[] = []
     if (preparedData.length) {
-      const { insertedIds } = await this.collection.insertMany(preparedData)
-      results = preparedData.map((data, i) => this.cleanJSON({ _id: insertedIds[i], ...data }))
+      let insertedIds: Record<number, ObjectId> = {}
+      let writeErrors: WriteError[] = []
+      try {
+        const bulkResult = await this.collection.insertMany(preparedData, { ordered: false })
+        insertedIds = bulkResult.insertedIds
+      } catch (error) {
+        if (!(error instanceof MongoBulkWriteError)) throw error
+        insertedIds = error.insertedIds
+        writeErrors = this.normalizeWriteErrors(error.writeErrors)
+      }
+      const writeErrorByIndex = new Map(writeErrors.map(we => [we.index, we]))
+      preparedData.forEach((data, i) => {
+        const insertedId = insertedIds[i]
+        if (insertedId !== undefined) {
+          results.push(this.cleanJSON({ _id: insertedId, ...data }))
+        } else {
+          errors.push({ data, error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
+        }
+      })
       await this.settleWithErrors({
         items: results,
         run: json => this.callHook('create:done', { data: json, event }),
@@ -635,8 +662,19 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (bulkOps.length) {
-      await this.collection.bulkWrite(bulkOps, { ordered: false })
-      const updatedDocuments = await this.collection.find({ _id: { $in: fulfilledIds } } as any).toArray()
+      let writeErrors: WriteError[] = []
+      try {
+        await this.collection.bulkWrite(bulkOps, { ordered: false })
+      } catch (error) {
+        if (!(error instanceof MongoBulkWriteError)) throw error
+        writeErrors = this.normalizeWriteErrors(error.writeErrors)
+      }
+      for (const writeError of writeErrors) {
+        errors.push({ data: { id: `${fulfilledIds[writeError.index]}` }, error: writeError.errmsg ?? 'Write error' })
+      }
+      const failedIndices = new Set(writeErrors.map(we => we.index))
+      const succeededIds = fulfilledIds.filter((_id, i) => !failedIndices.has(i))
+      const updatedDocuments = await this.collection.find({ _id: { $in: succeededIds } } as any).toArray()
       for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
     }
 
