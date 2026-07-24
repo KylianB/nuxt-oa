@@ -37,6 +37,8 @@ type HookArgDoc = { document?: WithId<Document> | null }
 type HookArgDocs = { documents: WithId<Document>[] }
 type HookArgEv = { event?: H3Event }
 type HookArgIds = { id: string | ObjectId | undefined, _id: ObjectId }
+// ids is the raw input as given by the caller; _ids only contains the ones that parsed successfully —
+// they don't correspond by index/length when some ids are malformed
 type HookArgIdsArray = { ids: (string | ObjectId | undefined)[], _ids: ObjectId[] }
 type HookArgErrors = { errors: { data?: Schema, error: unknown }[] }
 export interface ModelNuxtOaHooks<T extends OaModelName> {
@@ -80,6 +82,8 @@ type SettledWithErrorsOptions<Item, R> = {
   errors: HookArgErrors['errors']
   errorData?: (item: Item, causeData?: Schema) => Schema | undefined
 }
+
+const bulkActionMap = { update: 'bulkUpdate', archive: 'bulkArchive', delete: 'bulkDelete' } as const
 
 export function cleanSchema(schema: Schema): Schema {
   schema.type = 'object' //  type must be object
@@ -314,17 +318,6 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
-   * Transform single action string to bulk action string
-   * @param action
-   * @returns action string
-   */
-  private bulkAction(action: 'update' | 'archive' | 'delete') {
-    if (action === 'update') return 'bulkUpdate'
-    if (action === 'archive') return 'bulkArchive'
-    return 'bulkDelete'
-  }
-
-  /**
    * Retrieve mongodb documents if one or more hooks '[action]:document' are set
    * @param action
    * @param _ids documents id
@@ -334,7 +327,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   private async callHookDocuments(action: 'update' | 'archive' | 'delete', _ids: ObjectId[], event?: H3Event): Promise<WithId<OaDbItem<T>>[] | null> {
     let documents: WithId<OaDbItem<T>>[] | null = null
     const docHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${action}:document`, {}))
-    const docsHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${this.bulkAction(action)}:documents`, {}))
+    const docsHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${bulkActionMap[action]}:documents`, {}))
 
     if (!docHooks.length && !docsHooks.length) return null
     documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
