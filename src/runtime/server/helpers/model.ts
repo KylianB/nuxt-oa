@@ -534,6 +534,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
   /**
    * Create update data object
+   * @param id instance id, as originally passed by the caller
    * @param _id instance id
    * @param d body (data from user)
    * @param document document already found
@@ -543,7 +544,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param date update date
    * @returns update data object
    */
-  private async getUpdateData(_id: ObjectId, d: Partial<OaDbItem<T> & Schema>, document: WithId<OaDbItem<T>> | null, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, date?: Date) {
+  private async getUpdateData(id: string | ObjectId | undefined, _id: ObjectId, d: Partial<OaDbItem<T> & Schema>, document: WithId<OaDbItem<T>> | null, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, date?: Date) {
     const data = readOnlyData ? { ...d, ...readOnlyData } : { ...d }
 
     if (this.timestamps.updatedAt) data.updatedAt = date ?? new Date()
@@ -562,7 +563,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       data.updates = [...(instance.updates || []), update]
     }
 
-    await this.callHook('update:after', { id: _id.toString(), _id, data, event })
+    await this.callHook('update:after', { id, _id, data, event })
 
     if (this.cipherKey && instance) {
       data._iv = instance._iv
@@ -588,7 +589,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const document = existingDoc ?? await this.callHookDocument('update', _id, event)
 
     this.validate(d)
-    const data = await this.getUpdateData(_id, d, document, userId, readOnlyData, event)
+    const data = await this.getUpdateData(id, _id, d, document, userId, readOnlyData, event)
 
     const value = await this.collection
       .findOneAndUpdate({ _id } as any, { $set: data }, { returnDocument: 'after' })
@@ -646,7 +647,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         this.validate(update.d)
         const document = documentsMap.get(update.id)
         if (!document) throw new Error('Document not found')
-        const data = await this.getUpdateData(update._id, update.d, document, userId, readOnlyData, event, at)
+        const data = await this.getUpdateData(update.id, update._id, update.d, document, userId, readOnlyData, event, at)
         return {
           updateOne: {
             filter: { _id: update._id } as any,
