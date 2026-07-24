@@ -676,6 +676,12 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       const succeededIds = fulfilledIds.filter((_id, i) => !failedIndices.has(i))
       const updatedDocuments = await this.collection.find({ _id: { $in: succeededIds } } as any).toArray()
       for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
+
+      // A succeeded write can still fail to come back here
+      const updatedIds = new Set(results.map(j => j.id?.toString()))
+      for (const _id of succeededIds) {
+        if (!updatedIds.has(_id.toString())) errors.push({ data: { id: `${_id}` }, error: 'Document not found' })
+      }
     }
 
     await this.settleWithErrors({
