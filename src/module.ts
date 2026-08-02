@@ -104,8 +104,16 @@ export default defineNuxtModule<ModuleOptions>({
       from: resolve('runtime/server/helpers/db'),
       imports: ['useMongoClient', 'useDb', 'useCol', 'useObjectId']
     })
+    const oaNitroContent = () => [
+      `export const oaSchemasByName = ${JSON.stringify(schemasByName)}`,
+      `export const oaDefsSchemas = ${JSON.stringify(defsSchemas)}`,
+      `export const useOaServerSchema = () => ({ schemasByName: oaSchemasByName, defsSchemas: oaDefsSchemas })`
+    ].join('\n')
     nuxt.options.nitro.virtual = defu(
-      { '#oa-config': () => `export default ${JSON.stringify(nuxt.options.runtimeConfig.oa)}` },
+      {
+        '#oa-config': () => `export default ${JSON.stringify(nuxt.options.runtimeConfig.oa)}`,
+        '#oa-nitro': oaNitroContent
+      },
       nuxt.options.nitro.virtual
     )
 
@@ -206,11 +214,7 @@ export default defineNuxtModule<ModuleOptions>({
     const templateNitro = addTemplate({
       filename: 'oa/nitro.ts',
       write: true,
-      getContents: () => [
-        `export const oaSchemasByName = ${JSON.stringify(schemasByName)}`,
-        `export const oaDefsSchemas = ${JSON.stringify(defsSchemas)}`,
-        `export const useOaServerSchema = () => ({ schemasByName: oaSchemasByName, defsSchemas: oaDefsSchemas })`
-      ].join('\n')
+      getContents: oaNitroContent
     })
     nuxt.options.nitro.imports.presets.push({
       from: templateNitro.dst,
@@ -231,6 +235,21 @@ export default defineNuxtModule<ModuleOptions>({
         }
         return genTypes(schemasByName, defsSchemas, clientSchemaByName) // first-time
       }
+    }, { nuxt: true, nitro: true })
+    // Type the virtual modules used internally by the runtime (avoids `@ts-expect-error` on import)
+    addTypeTemplate({
+      filename: 'types/oa-virtual.d.ts',
+      getContents: () => [
+        `declare module '#oa-config' {`,
+        `  const config: Partial<import('nuxt-oa').ModuleOptions>`,
+        `  export default config`,
+        `}`,
+        `declare module '#oa-nitro' {`,
+        `  export const oaSchemasByName: Record<string, any>`,
+        `  export const oaDefsSchemas: { $id: string, definitions: Record<string, any> }[]`,
+        `  export function useOaServerSchema(): { schemasByName: typeof oaSchemasByName, defsSchemas: typeof oaDefsSchemas }`,
+        `}`
+      ].join('\n')
     }, { nuxt: true, nitro: true })
     // On update
     nuxt.hook('builder:watch', (event, path) => {

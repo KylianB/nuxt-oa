@@ -3,7 +3,7 @@ import type { Schema } from '../types'
 import { cleanSchema } from './helpers/model'
 import { useOaConfig } from './helpers/config'
 import { paths, components } from './helpers/router'
-import { oaDefsSchemas, oaSchemasByName } from '~/.nuxt/oa/nitro'
+import { oaDefsSchemas, oaSchemasByName } from '#oa-nitro'
 
 const { openApiGeneralInfo, openApiServers } = useOaConfig()
 

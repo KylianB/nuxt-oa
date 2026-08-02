@@ -13,7 +13,7 @@ import { pluralize } from './pluralize'
 import { decrypt, encrypt } from './cipher'
 import { useOaConfig } from './config'
 import * as _ from './_'
-import { useOaServerSchema } from '~/.nuxt/oa/nitro'
+import { useOaServerSchema } from '#oa-nitro'
 
 const { cipherAlgo, cipherKey, cipherIvSize, dbClientOnRenderer } = useOaConfig()
 const { schemasByName, defsSchemas } = useOaServerSchema()
