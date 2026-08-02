@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/Morgbn/nuxt-oa/compare/v2.0.0...v2.0.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* :bug: use nitro virtual module instead of ~/.nuxt alias for server ([696f327](https://github.com/Morgbn/nuxt-oa/commit/696f327110ddc32de59bb0a5dcb0ff7211c3beee))
+
 # [2.0.0](https://github.com/Morgbn/nuxt-oa/compare/v1.14.3...v2.0.0) (2026-04-04)
 
 
