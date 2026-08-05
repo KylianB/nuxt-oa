@@ -662,7 +662,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       items: updates,
       run: async (update) => {
         this.validate(update.d)
-        const document = documentsMap.get(update.id)
+        const document = documentsMap.get(update._id.toString())
         if (!document) throw new Error('Document not found')
         const data = await this.getUpdateData(update.id, update._id, update.d, document, userId, readOnlyData, event, at)
         return {
