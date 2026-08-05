@@ -24,6 +24,18 @@ const modelIdInPath = (name: string) => ({
   description: `Object Id of the ${name.toLowerCase()}`
 })
 
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+// Validates only the request shape (array-ness + item type). Per-item business validity
+// (bad ObjectId, schema mismatch, ...) is still isolated downstream via settleWithErrors.
+function validateBulkArray(value: unknown, itemIsValid: (item: unknown) => boolean, statusMessage: string): void {
+  if (!Array.isArray(value) || !value.every(itemIsValid)) {
+    throw createError({ statusCode: 400, statusMessage })
+  }
+}
+
 export function useUserId(event: H3Event): string | ObjectId {
   if (!event.context.user?.id) {
     throw createError({ statusCode: 400, statusMessage: 'No user.id in event.context' })
@@ -93,6 +105,7 @@ export const useBulkCreate = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
+    validateBulkArray(body, isPlainObject, 'Body must be an array of objects')
     return await model.bulkCreate(body, useUserId(event), null, event)
   }, {
     tags: [name],
@@ -178,6 +191,7 @@ export const useBulkUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
+    validateBulkArray(body, isPlainObject, 'Body must be an array of objects')
     return await model.bulkUpdate(body, useUserId(event), null, event)
   }, {
     tags: [name],
@@ -276,6 +290,7 @@ export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = 
 
   return oaHandler(async (event: H3Event) => {
     const { ids, archive } = await readBody(event)
+    validateBulkArray(ids, isString, 'ids must be an array of strings')
     return await model.bulkArchive(ids, archive, useUserId(event), event)
   }, {
     tags: [name],
@@ -373,6 +388,7 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const { ids } = await readBody(event)
+    validateBulkArray(ids, isString, 'ids must be an array of strings')
     return await model.bulkDelete(ids, event)
   }, {
     tags: [name],
