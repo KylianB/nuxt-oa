@@ -884,6 +884,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     }
     await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
 
+    // No results array to check here (delete has nothing to return but a count), so full-failure
+    // is judged on deletedCount instead of the !results.length check used by the other three bulk ops
     if (ids.length && !deletedCount) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
 
     return { deletedCount, errors }
