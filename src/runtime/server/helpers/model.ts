@@ -355,6 +355,28 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * Parse a raw id, isolating a malformed or duplicate id as an error
+   * @param id raw id to parse
+   * @param seenIds ids already parsed in this batch, for duplicate detection
+   * @param errors errors accumulator
+   * @param errorData error entry data, defaults to `{ id }`
+   */
+  private parseId(id: string | ObjectId | undefined, seenIds: Set<string>, errors: HookArgErrors['errors'], errorData?: Schema): ObjectId | null {
+    const _id = this.tryObjectId(id)
+    if (!_id) {
+      errors.push({ data: errorData ?? { id: `${id}` }, error: 'Bad id' })
+      return null
+    }
+    const key = _id.toString()
+    if (seenIds.has(key)) {
+      errors.push({ data: errorData ?? { id: `${id}` }, error: 'Duplicate id' })
+      return null
+    }
+    seenIds.add(key)
+    return _id
+  }
+
+  /**
    * Extract a readable message from a rejected settled result
    * Hooks are user-defined and may reject with anything (a string, a plain object, ...), not just an Error
    * @param reason
@@ -605,6 +627,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkUpdate(u: { id: string | ObjectId, d: Partial<OaDbItem<T> & Schema> }[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const seenIds = new Set<string>()
     const parsed: { id: string, _id: ObjectId, d: Partial<OaDbItem<T> & Schema> }[] = []
     for (const entry of u) {
       if (!entry || typeof entry !== 'object') {
@@ -612,12 +635,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         continue
       }
       const { id, d } = entry
-      const _id = this.tryObjectId(id)
-      if (!_id) {
-        errors.push({ data: { id: `${id}`, ...d }, error: 'Bad id' })
-        continue
-      }
-      parsed.push({ id: id.toString(), _id, d })
+      const _id = this.parseId(id, seenIds, errors, { id: `${id}`, ...d })
+      if (_id) parsed.push({ id: id.toString(), _id, d })
     }
 
     await this.callHook('bulkUpdate:before', { data: parsed, event })
@@ -732,14 +751,11 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const seenIds = new Set<string>()
     const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
     for (const id of ids) {
-      const _id = this.tryObjectId(id)
-      if (!_id) {
-        errors.push({ data: { id: `${id}` }, error: 'Bad id' })
-        continue
-      }
-      parsed.push({ id, _id })
+      const _id = this.parseId(id, seenIds, errors)
+      if (_id) parsed.push({ id, _id })
     }
 
     await this.callHook('bulkArchive:before', { ids, _ids: parsed.map(p => p._id), event })
@@ -821,14 +837,11 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkDelete(ids: (string | ObjectId | undefined)[], event?: H3Event) {
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
+    const seenIds = new Set<string>()
     const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
     for (const id of ids) {
-      const _id = this.tryObjectId(id)
-      if (!_id) {
-        errors.push({ data: { id: `${id}` }, error: 'Bad id' })
-        continue
-      }
-      parsed.push({ id, _id })
+      const _id = this.parseId(id, seenIds, errors)
+      if (_id) parsed.push({ id, _id })
     }
 
     await this.callHook('bulkDelete:before', { ids, _ids: parsed.map(p => p._id), event })
