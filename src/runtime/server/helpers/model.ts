@@ -606,7 +606,12 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
     const parsed: { id: string, _id: ObjectId, d: Partial<OaDbItem<T> & Schema> }[] = []
-    for (const { id, d } of u) {
+    for (const entry of u) {
+      if (!entry || typeof entry !== 'object') {
+        errors.push({ data: { id: `${entry}` }, error: 'Bad data' })
+        continue
+      }
+      const { id, d } = entry
       const _id = this.tryObjectId(id)
       if (!_id) {
         errors.push({ data: { id: `${id}`, ...d }, error: 'Bad id' })
