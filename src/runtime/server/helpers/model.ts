@@ -505,7 +505,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         if (insertedId !== undefined) {
           results.push(this.cleanJSON({ _id: insertedId, ...data }))
         } else {
-          errors.push({ data, error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
+          errors.push({ data: this.cleanJSON(data), error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
         }
       })
       await this.settleWithErrors({
