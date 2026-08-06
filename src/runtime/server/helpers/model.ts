@@ -665,6 +665,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         if (!document) throw new Error('Document not found')
         const data = await this.getUpdateData(update.id, update._id, update.d, document, userId, readOnlyData, event, at)
         return {
+          data,
           updateOne: {
             filter: { _id: update._id } as any,
             update: { $set: data }
@@ -675,13 +676,13 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       errorData: (update, data) => ({ id: `${update._id}`, ...data })
     })
     const fulfilledIds = bulkOps.map(op => op.updateOne.filter._id)
-    await this.callHook('bulkUpdate:after', { data: updates, errors, event })
+    await this.callHook('bulkUpdate:after', { data: bulkOps.map(op => op.data), errors, event })
 
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (bulkOps.length) {
       let writeErrors: WriteError[] = []
       try {
-        await this.collection.bulkWrite(bulkOps, { ordered: false })
+        await this.collection.bulkWrite(bulkOps.map(({ updateOne }) => ({ updateOne })), { ordered: false })
       } catch (error) {
         if (!(error instanceof MongoBulkWriteError)) throw error
         writeErrors = this.normalizeWriteErrors(error.writeErrors)
