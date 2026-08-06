@@ -483,7 +483,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const preparedData = await this.settleWithErrors({
       items: d,
       run: item => this.createHelper(item, readOnlyData, event, userId, at),
-      errors
+      errors,
+      errorData: (item, data) => ({ ...item, ...data })
     })
     await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
     // Insert valid data
