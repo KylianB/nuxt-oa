@@ -433,14 +433,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param d body (data from user)
    * @param readOnlyData data from application logic
    * @param event incoming request
-   * @param by user id
+   * @param userId user id
    * @param at timestamp
    */
-  private async createHelper(d: OptionalUnlessRequiredId<OaDbItem<T>>, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, by?: ObjectId | null, at = new Date()) {
+  private async createHelper(d: OptionalUnlessRequiredId<OaDbItem<T>>, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event, userId?: string | ObjectId, at = new Date()) {
     await this.callHook('create:before', { data: d, event })
 
     this.validate(d)
     const data = readOnlyData ? { ...d, ...readOnlyData } : d
+    const by = userId ? useObjectId(userId) : null
     if (this.timestamps.createdAt) data.createdAt = at
     if (this.timestamps.updatedAt) data.updatedAt = at
     if (this.userstamps.createdBy && by) data.createdBy = by
@@ -460,8 +461,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async create(d: OptionalUnlessRequiredId<OaDbItem<T>>, userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
-    const by = userId ? useObjectId(userId) : null
-    const data = await this.createHelper(d, readOnlyData, event, by)
+    const data = await this.createHelper(d, readOnlyData, event, userId)
     const { insertedId } = await this.collection.insertOne(data)
     const json = this.cleanJSON({ _id: insertedId, ...data })
     await this.callHook('create:done', { data: json, event })
@@ -479,11 +479,10 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     await this.callHook('bulkCreate:before', { data: d, event })
     // Prepare data
     const at = new Date()
-    const by = userId ? useObjectId(userId) : null
     const errors: HookArgErrors['errors'] = []
     const preparedData = await this.settleWithErrors({
       items: d,
-      run: item => this.createHelper(item, readOnlyData, event, by, at),
+      run: item => this.createHelper(item, readOnlyData, event, userId, at),
       errors
     })
     await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
