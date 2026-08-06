@@ -779,7 +779,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     entries = await this.settleWithErrors({
       items: entries,
       run: async (p) => {
-        await this.callHook('archive:after', { id: p.id, _id: p._id, data, event })
+        await this.callHook('archive:after', { id: p.id, _id: p._id, data: { ...data }, event })
         return p
       },
       errors,
