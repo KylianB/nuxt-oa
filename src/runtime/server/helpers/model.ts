@@ -56,7 +56,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'update:document': (d: HookArgDoc & HookArgEv) => HookResult
   'update:after': (d: HookArgData & HookArgEv & HookArgIds) => HookResult
   'update:done': (d: HookArgData & HookArgEv) => HookResult
-  'bulkUpdate:before': (d: HookArgDataArray & HookArgEv) => HookResult
+  'bulkUpdate:before': (d: HookArgDataArray & HookArgEv & HookArgIdsArray) => HookResult
   'bulkUpdate:documents': (d: HookArgDocs & HookArgEv) => HookResult
   'bulkUpdate:after': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'bulkUpdate:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
@@ -638,7 +638,12 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       if (_id) parsed.push({ id: id.toString(), _id, d })
     }
 
-    await this.callHook('bulkUpdate:before', { data: parsed, event })
+    await this.callHook('bulkUpdate:before', {
+      ids: u.map(entry => (entry && typeof entry === 'object') ? entry.id : undefined),
+      _ids: parsed.map(p => p._id),
+      data: parsed.map(p => p.d),
+      event
+    })
 
     // Isolate before-hook rejections instead of silently discarding them
     const updates = await this.settleWithErrors({
