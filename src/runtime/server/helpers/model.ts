@@ -755,6 +755,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    */
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
     const errors: HookArgErrors['errors'] = []
+    const deletedBy = (this.userstamps.deletedBy && archive) ? useObjectId(userId) : undefined
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
     const seenIds = new Set<string>()
     const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
@@ -779,7 +780,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     await this.callHookDocuments('archive', entries.map(p => p._id), event)
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
-    if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
+    if (this.userstamps.deletedBy) data.deletedBy = deletedBy
 
     // Isolate after-hook rejections instead of silently discarding them
     entries = await this.settleWithErrors({
