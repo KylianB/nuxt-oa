@@ -795,6 +795,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (this.userstamps.deletedBy) data.deletedBy = deletedBy
 
     // Isolate after-hook rejections instead of silently discarding them
+    // `data` is cloned per call because all entries share one updateMany below — unlike
+    // single-item archive(), a hook mutating `data` here has no effect on what gets written
     entries = await this.settleWithErrors({
       items: entries,
       run: async (p) => {
