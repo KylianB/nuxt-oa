@@ -72,7 +72,8 @@ export default defineNuxtModule<ModuleOptions>({
     openApiPath: '/api-doc/openapi.json',
     scalarPath: '/api-doc',
     cipherKey: '',
-    dbUrl: ''
+    dbUrl: '',
+    maxBulkSize: 500
   },
   async setup(options, nuxt) {
     const { schemasByName, defsSchemas, defsById } = getSchemas(options, nuxt)
@@ -138,6 +139,7 @@ export default defineNuxtModule<ModuleOptions>({
       delete schema.trackedProperties
       delete schema.timestamps
       delete schema.userstamps
+      delete schema.maxBulkSize
       // remove writeOnly props
       if (!schema.writeOnly) {
         const stack: { parent: Schema, key: string, el: Schema }[] = []

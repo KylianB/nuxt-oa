@@ -91,6 +91,9 @@
       <button @click="bulkCreateFullFail">
         + Bulk create (full fail → 400)
       </button>
+      <button @click="bulkCreateTooMany">
+        + Bulk create (6 items, over the maxBulkSize:5 cap → 400)
+      </button>
       <button @click="bulkDelete(false)">
         - Bulk delete (top 3)
       </button>
@@ -284,6 +287,14 @@ const bulkCreateFullFail = msgWrapper(async () =>
       { text: 'no' },
       { text: 'x' }
     ]
+  })
+)
+
+// Todo's schema sets maxBulkSize to 5 — 6 items goes over the limit, rejected before any hook or DB work runs
+const bulkCreateTooMany = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: Array.from({ length: 6 }, () => ({ text: 'Bulk ' + randStr() }))
   })
 )
 

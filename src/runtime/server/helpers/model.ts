@@ -16,7 +16,7 @@ import { useOaConfig } from './config'
 import * as _ from './_'
 import { useOaServerSchema } from '~/.nuxt/oa/nitro'
 
-const { cipherAlgo, cipherKey, cipherIvSize, dbClientOnRenderer } = useOaConfig()
+const { cipherAlgo, cipherKey, cipherIvSize, dbClientOnRenderer, maxBulkSize: defaultMaxBulkSize } = useOaConfig()
 const { schemasByName, defsSchemas } = useOaServerSchema()
 const noDbClient = import.meta.prerender && !dbClientOnRenderer
 
@@ -28,7 +28,7 @@ type Userstamps = { createdBy?: boolean, updatedBy?: boolean, deletedBy?: boolea
 
 type OaDbItem<T extends OaModelName> = Omit<OaModels[T], 'id'> & { _id?: ObjectId, createdAt?: string | Date, updatedAt?: string | Date, createdBy?: string | ObjectId, updatedBy?: string | ObjectId, updates?: Record<string, unknown>[], _iv?: string }
 type OaTrackedProps<T extends OaModelName> = keyof OaDbItem<T> & string
-type OaSchema<T extends OaModelName> = { properties: Schema, encryptedProperties?: string[], trackedProperties?: OaTrackedProps<T>[], timestamps: Timestamps | boolean, userstamps: Userstamps | boolean }
+type OaSchema<T extends OaModelName> = { properties: Schema, encryptedProperties?: string[], trackedProperties?: OaTrackedProps<T>[], timestamps: Timestamps | boolean, userstamps: Userstamps | boolean, maxBulkSize?: number }
 
 type HookResult = Promise<void> | void
 type HookArgData = { data: Schema }
@@ -91,6 +91,7 @@ export function cleanSchema(schema: Schema): Schema {
   delete schema.trackedProperties
   delete schema.timestamps
   delete schema.userstamps
+  delete schema.maxBulkSize
   return schema
 }
 
@@ -101,6 +102,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   trackedProps: OaTrackedProps<T>[]
   timestamps: Timestamps
   userstamps: Userstamps
+  maxBulkSize: number
   schema: Schema
   validator: ValidateFunction
   getAllCleaner: (el: Partial<OaDbItem<T>> | WithId<OaDbItem<T>>) => Omit<Partial<OaDbItem<T>> | WithId<OaDbItem<T>>, '_id' | '_iv'> & { id?: ObjectId }
@@ -141,6 +143,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     this.timestamps = typeof schema.timestamps === 'object'
       ? schema.timestamps
       : (!schema.timestamps ? {} : { createdAt: true, updatedAt: true })
+    this.maxBulkSize = schema.maxBulkSize ?? defaultMaxBulkSize
 
     const props = new Set<string>() // props to put in updates
     props.add('updatedAt') // always add updatedAt
@@ -351,6 +354,19 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * Guard against oversized bulk payloads before any hook or DB work runs
+   * @param items array submitted to a bulk* method
+   */
+  private assertBulkSize(items: unknown[]) {
+    if (items.length > this.maxBulkSize)
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Too many items',
+        data: { max: this.maxBulkSize, received: items.length }
+      })
+  }
+
+  /**
    * Safely parse an id, returning null instead of throwing on a malformed id
    * @param id
    */
@@ -484,6 +500,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkCreate(d: OptionalUnlessRequiredId<OaDbItem<T>>[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+    this.assertBulkSize(d)
     await this.callHook('bulkCreate:before', { data: d, event })
     // Prepare data
     const at = new Date()
@@ -633,6 +650,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkUpdate(u: { id: string | ObjectId, d: Partial<OaDbItem<T> & Schema> }[], userId?: string | ObjectId, readOnlyData?: Partial<OaDbItem<T> & Schema> | null, event?: H3Event) {
+    this.assertBulkSize(u)
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
     const seenIds = new Set<string>()
@@ -765,6 +783,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
+    this.assertBulkSize(ids)
     const errors: HookArgErrors['errors'] = []
     const deletedBy = (this.userstamps.deletedBy && archive) ? useObjectId(userId) : undefined
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
@@ -855,6 +874,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
    * @param event incoming request
    */
   async bulkDelete(ids: (string | ObjectId | undefined)[], event?: H3Event) {
+    this.assertBulkSize(ids)
     const errors: HookArgErrors['errors'] = []
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
     const seenIds = new Set<string>()
