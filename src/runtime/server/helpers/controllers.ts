@@ -27,6 +27,8 @@ const modelIdInPath = (name: string) => ({
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+const isBulkUpdateItem = (value: unknown): value is { id: string, d: Record<string, unknown> } =>
+  isPlainObject(value) && isString(value.id) && isPlainObject(value.d)
 
 // Validates only the request shape (array-ness + item type). Per-item business validity
 // (bad ObjectId, schema mismatch, ...) is still isolated downstream via settleWithErrors.
@@ -191,7 +193,7 @@ export const useBulkUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
-    validateBulkArray(body, isPlainObject, 'Body must be an array of objects')
+    validateBulkArray(body, isBulkUpdateItem, 'Body must be an array of { id: string, d: object }')
     return await model.bulkUpdate(body, useUserId(event), null, event)
   }, {
     tags: [name],
