@@ -906,6 +906,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     })
 
     let deletedCount = 0
+    // Fed to bulkDelete:done below — kept separate from `entries` so an id rejected by a
+    // delete:document hook or missing from the collection isn't reported there as deleted
+    const deletedIds: ObjectId[] = []
     if (entries.length) {
       const validIds = entries.map(p => p._id)
       const docsResult = await this.callHookDocuments('delete', validIds, errors, event)
@@ -917,7 +920,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         ?? await this.collection.find({ _id: { $in: deletableIds } } as any, { projection: { _id: 1 } }).toArray()
       const existingIds = new Set(documents.map(doc => doc._id.toString()))
 
-      ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: deletableIds } } as any))
+      deletedCount = (await this.collection.deleteMany({ _id: { $in: deletableIds } } as any)).deletedCount
 
       await this.settleWithErrors({
         items: entries.filter(p => !rejectedIds.has(p._id.toString())),
@@ -926,6 +929,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
             errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
             return
           }
+          deletedIds.push(p._id)
           return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
         },
         errors,
@@ -934,7 +938,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     } else {
       await this.callHookDocuments('delete', [], errors, event)
     }
-    await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
+    await this.callHook('bulkDelete:done', { data: { ids: deletedIds }, errors, event })
 
     // No results array to check here (delete has nothing to return but a count), so full-failure
     // is judged on deletedCount instead of the !results.length check used by the other three bulk ops
