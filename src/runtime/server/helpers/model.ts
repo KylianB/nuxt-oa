@@ -322,12 +322,14 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
   /**
    * Retrieve mongodb documents if one or more hooks '[action]:document' are set, isolating a
-   * single document's hook rejection to that document (via `rejectedIds`) instead of aborting the batch
+   * single document's hook rejection to that document (via `rejectedIds`) instead of aborting the batch.
+   * The bulk '[bulkAction]:documents' hook only receives the documents that survived that per-document
+   * hook, so it reflects what will actually continue through the batch, not the raw fetched set.
    * @param action
    * @param _ids documents id
    * @param errors errors accumulator
    * @param event incoming request
-   * @returns fetched documents and the ids whose single-document hook rejected
+   * @returns fetched documents (unfiltered) and the ids whose single-document hook rejected
    */
   private async callHookDocuments(action: 'update' | 'archive' | 'delete', _ids: ObjectId[], errors: HookArgErrors['errors'], event?: H3Event): Promise<{ documents: WithId<OaDbItem<T>>[], rejectedIds: Set<string> } | null> {
     const docHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${action}:document`, {}))
@@ -346,7 +348,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       errorData: document => ({ id: `${document._id}` })
     })
 
-    await Promise.all(docsHooks.map(caller => caller({ documents, event })))
+    // Only the documents that survived the per-document hook are actually going to be processed further down
+    await Promise.all(docsHooks.map(caller => caller({ documents: survivors, event })))
 
     const survivorIds = new Set(survivors.map(doc => doc._id.toString()))
     const rejectedIds = new Set(documents.filter(doc => !survivorIds.has(doc._id.toString())).map(doc => doc._id.toString()))
