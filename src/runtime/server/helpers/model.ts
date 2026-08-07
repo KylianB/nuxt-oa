@@ -80,7 +80,7 @@ type SettledWithErrorsOptions<Item, R> = {
   items: Item[]
   run: (item: Item, index: number) => Promise<R> | R
   errors: HookArgErrors['errors']
-  errorData?: (item: Item, causeData?: Schema) => Schema | undefined
+  errorData?: (item: Item, causeData: Schema | undefined, index: number) => Schema | undefined
 }
 
 const bulkActionMap = { update: 'bulkUpdate', archive: 'bulkArchive', delete: 'bulkDelete' } as const
@@ -448,7 +448,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         fulfilled.push(result.value)
       } else {
         const { data, error } = this.toErrorEntry(result.reason)
-        const errorData = opt.errorData ? opt.errorData(opt.items[i]!, data) : data ?? opt.items[i]!
+        const errorData = opt.errorData ? opt.errorData(opt.items[i]!, data, i) : data ?? opt.items[i]!
         opt.errors.push({ data: errorData, error })
       }
     }
@@ -508,35 +508,39 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     // Prepare data
     const at = new Date()
     const errors: HookArgErrors['errors'] = []
-    const preparedData = await this.settleWithErrors({
+    // index is the item's position in `d`, kept alongside data so a failure (validation or write)
+    // can be linked back to the submitted item even when several items are identical
+    const prepared = await this.settleWithErrors({
       items: d,
-      run: item => this.createHelper(item, readOnlyData, event, userId, at),
+      run: async (item, index) => ({ index, data: await this.createHelper(item, readOnlyData, event, userId, at) }),
       errors,
-      errorData: (item, data) => ({ ...item, ...data })
+      errorData: (item, data, index) => ({ index, ...data })
     })
-    await this.callHook('bulkCreate:after', { data: preparedData, errors, event })
+    const preparedItems = prepared.map(p => p.data)
+    await this.callHook('bulkCreate:after', { data: preparedItems, errors, event })
     // Insert valid data
     const results: ReturnType<typeof this.cleanJSON>[] = []
-    if (preparedData.length) {
+    if (prepared.length) {
       let insertedIds: Record<number, ObjectId> = {}
       let writeErrors: WriteError[] = []
       try {
-        const bulkResult = await this.collection.insertMany(preparedData, { ordered: false })
+        const bulkResult = await this.collection.insertMany(preparedItems, { ordered: false })
         insertedIds = bulkResult.insertedIds
       } catch (error) {
         if (!(error instanceof MongoBulkWriteError)) throw error
         insertedIds = error.insertedIds
         writeErrors = this.normalizeWriteErrors(error.writeErrors)
       }
+      // i = position in insertMany's array (for writeErrorByIndex); index = original position in `d`
       const writeErrorByIndex = new Map(writeErrors.map(we => [we.index, we]))
-      preparedData.forEach((data, i) => {
+      for (const [i, { index, data }] of prepared.entries()) {
         const insertedId = insertedIds[i]
         if (insertedId !== undefined) {
           results.push(this.cleanJSON({ _id: insertedId, ...data }))
         } else {
-          errors.push({ data: this.cleanJSON(data), error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
+          errors.push({ data: { index }, error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
         }
-      })
+      }
       await this.settleWithErrors({
         items: results,
         run: json => this.callHook('create:done', { data: json, event }),
