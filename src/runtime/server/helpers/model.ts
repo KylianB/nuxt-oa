@@ -811,7 +811,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     })
 
     const docsResult = await this.callHookDocuments('archive', entries.map(p => p._id), errors, event)
-    if (docsResult?.rejectedIds.size) entries = entries.filter(p => !docsResult.rejectedIds.has(p._id.toString()))
+    const rejectedIds = docsResult?.rejectedIds ?? new Set<string>()
+    entries = entries.filter(p => !rejectedIds.has(p._id.toString()))
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
     if (this.userstamps.deletedBy) data.deletedBy = deletedBy
