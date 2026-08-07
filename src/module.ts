@@ -95,7 +95,7 @@ export default defineNuxtModule<ModuleOptions>({
     })
     nuxt.options.nitro.imports.presets.push({
       from: resolve('runtime/server/helpers/controllers'),
-      imports: ['useUserId', 'useGetAll', 'useCreate', 'useUpdate', 'useArchive', 'useDelete']
+      imports: ['useUserId', 'useGetAll', 'useCreate', 'useBulkCreate', 'useUpdate', 'useBulkUpdate', 'useArchive', 'useBulkArchive', 'useDelete', 'useBulkDelete']
     })
     nuxt.options.nitro.imports.presets.push({
       from: resolve('runtime/server/helpers/router'),
