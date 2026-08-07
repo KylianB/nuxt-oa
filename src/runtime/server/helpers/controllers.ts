@@ -296,9 +296,9 @@ export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = 
   const lowerName = name.toLowerCase()
 
   return oaHandler(async (event: H3Event) => {
-    const { ids, archive } = await readBody(event)
-    validateBulkArray(ids, isString, 'ids must be an array of strings')
-    return await model.bulkArchive(ids, archive, useUserId(event), event)
+    const body = await readBody(event)
+    validateBulkArray(body?.ids, isString, 'ids must be an array of strings')
+    return await model.bulkArchive(body?.ids, body?.archive, useUserId(event), event)
   }, {
     tags: [name],
     summary: `Bulk archive ${lowerName}`,
@@ -394,9 +394,9 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
   const lowerName = name.toLowerCase()
 
   return oaHandler(async (event: H3Event) => {
-    const { ids } = await readBody(event)
-    validateBulkArray(ids, isString, 'ids must be an array of strings')
-    return await model.bulkDelete(ids, event)
+    const body = await readBody(event)
+    validateBulkArray(body?.ids, isString, 'ids must be an array of strings')
+    return await model.bulkDelete(body?.ids, event)
   }, {
     tags: [name],
     summary: `Bulk delete ${lowerName}`,
