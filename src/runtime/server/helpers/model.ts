@@ -66,7 +66,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'archive:done': (d: HookArgData & HookArgEv) => HookResult
   'bulkArchive:before': (d: HookArgEv & HookArgIdsArray) => HookResult
   'bulkArchive:documents': (d: HookArgDocs & HookArgEv) => HookResult
-  'bulkArchive:after': (d: HookArgData & HookArgEv & HookArgIdsArray & HookArgErrors) => HookResult
+  'bulkArchive:after': (d: HookArgData & HookArgEv & { _ids: ObjectId[] } & HookArgErrors) => HookResult
   'bulkArchive:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
   'delete:before': (d: HookArgEv & HookArgIds) => HookResult
   'delete:document': (d: HookArgDoc & HookArgEv) => HookResult
@@ -833,7 +833,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       errors,
       errorData: (p, errData) => ({ id: `${p.id}`, ...errData })
     })
-    await this.callHook('bulkArchive:after', { ids, _ids: entries.map(p => p._id), data, errors, event })
+    await this.callHook('bulkArchive:after', { _ids: entries.map(p => p._id), data, errors, event })
 
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (entries.length) {
