@@ -318,28 +318,36 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
-   * Retrieve mongodb documents if one or more hooks '[action]:document' are set
+   * Retrieve mongodb documents if one or more hooks '[action]:document' are set, isolating a
+   * single document's hook rejection to that document (via `rejectedIds`) instead of aborting the batch
    * @param action
    * @param _ids documents id
+   * @param errors errors accumulator
    * @param event incoming request
-   * @returns document
+   * @returns fetched documents and the ids whose single-document hook rejected
    */
-  private async callHookDocuments(action: 'update' | 'archive' | 'delete', _ids: ObjectId[], event?: H3Event): Promise<WithId<OaDbItem<T>>[] | null> {
-    let documents: WithId<OaDbItem<T>>[] | null = null
+  private async callHookDocuments(action: 'update' | 'archive' | 'delete', _ids: ObjectId[], errors: HookArgErrors['errors'], event?: H3Event): Promise<{ documents: WithId<OaDbItem<T>>[], rejectedIds: Set<string> } | null> {
     const docHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${action}:document`, {}))
     const docsHooks = await new Promise<HookCallback[]>(resolve => this.callHookWith(resolve, `${bulkActionMap[action]}:documents`, {}))
 
     if (!docHooks.length && !docsHooks.length) return null
-    documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
-    const promises: (void | Promise<void>)[] = []
-    // Call single document hooks
-    for (const document of documents ?? []) {
-      promises.push(...docHooks.map(caller => caller({ document, event })))
-    }
-    // Call bulk documents hooks
-    promises.push(...docsHooks.map(caller => caller({ documents, event })))
-    await Promise.all(promises)
-    return documents
+    const documents = await this.collection.find({ _id: { $in: _ids } } as any).toArray()
+
+    const survivors = await this.settleWithErrors({
+      items: documents,
+      run: async (document) => {
+        await Promise.all(docHooks.map(caller => caller({ document, event })))
+        return document
+      },
+      errors,
+      errorData: document => ({ id: `${document._id}` })
+    })
+
+    await Promise.all(docsHooks.map(caller => caller({ documents, event })))
+
+    const survivorIds = new Set(survivors.map(doc => doc._id.toString()))
+    const rejectedIds = new Set(documents.filter(doc => !survivorIds.has(doc._id.toString())).map(doc => doc._id.toString()))
+    return { documents, rejectedIds }
   }
 
   /**
@@ -659,12 +667,14 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
 
     // Fetch all documents in ONE call
     const _ids = updates.map(update => update._id)
-    const documents = await this.callHookDocuments('update', _ids, event) ?? await this.collection.find({ _id: { $in: _ids } } as any).toArray()
+    const docsResult = await this.callHookDocuments('update', _ids, errors, event)
+    const documents = docsResult?.documents ?? await this.collection.find({ _id: { $in: _ids } } as any).toArray()
     const documentsMap = new Map(documents.map(doc => [doc._id.toString(), doc]))
+    const rejectedIds = docsResult?.rejectedIds ?? new Set<string>()
 
     const at = new Date()
     const bulkOps = await this.settleWithErrors({
-      items: updates,
+      items: updates.filter(update => !rejectedIds.has(update._id.toString())),
       run: async (update) => {
         this.validate(update.d)
         const document = documentsMap.get(update._id.toString())
@@ -778,7 +788,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       errorData: (p, data) => ({ id: `${p.id}`, ...data })
     })
 
-    await this.callHookDocuments('archive', entries.map(p => p._id), event)
+    const docsResult = await this.callHookDocuments('archive', entries.map(p => p._id), errors, event)
+    if (docsResult?.rejectedIds.size) entries = entries.filter(p => !docsResult.rejectedIds.has(p._id.toString()))
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
     if (this.userstamps.deletedBy) data.deletedBy = deletedBy
@@ -867,15 +878,19 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     let deletedCount = 0
     if (entries.length) {
       const validIds = entries.map(p => p._id)
+      const docsResult = await this.callHookDocuments('delete', validIds, errors, event)
+      const rejectedIds = docsResult?.rejectedIds ?? new Set<string>()
+      // A rejected delete:document hook keeps its document out of the actual delete entirely
+      const deletableIds = validIds.filter(_id => !rejectedIds.has(_id.toString()))
       // Know which ids actually exist before deleting, so per-id delete:done/errors reflect reality
-      const documents = await this.callHookDocuments('delete', validIds, event)
-        ?? await this.collection.find({ _id: { $in: validIds } } as any, { projection: { _id: 1 } }).toArray()
+      const documents = docsResult?.documents
+        ?? await this.collection.find({ _id: { $in: deletableIds } } as any, { projection: { _id: 1 } }).toArray()
       const existingIds = new Set(documents.map(doc => doc._id.toString()))
 
-      ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: validIds } } as any))
+      ;({ deletedCount } = await this.collection.deleteMany({ _id: { $in: deletableIds } } as any))
 
       await this.settleWithErrors({
-        items: entries,
+        items: entries.filter(p => !rejectedIds.has(p._id.toString())),
         run: (p) => {
           if (!existingIds.has(p._id.toString())) {
             errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
@@ -887,7 +902,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         errorData: (p, data) => data ?? { id: `${p.id}` }
       })
     } else {
-      await this.callHookDocuments('delete', [], event)
+      await this.callHookDocuments('delete', [], errors, event)
     }
     await this.callHook('bulkDelete:done', { data: { ids: entries.map(p => p._id) }, errors, event })
 
