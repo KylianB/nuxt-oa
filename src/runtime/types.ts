@@ -47,6 +47,8 @@ export interface ModuleOptions {
   /** See: https://scalar.com/products/api-references/configuration */
   scalarConfiguration?: Record<string, unknown>
   dbClientOnRenderer?: boolean
+  /** Max number of items accepted by a bulk* endpoint, unless overridden per-model via the schema's `maxBulkSize` */
+  maxBulkSize: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

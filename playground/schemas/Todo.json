@@ -34,5 +34,6 @@
   "encryptedProperties": ["text", "cost"],
   "trackedProperties": ["text", "cost"],
   "timestamps": true,
-  "userstamps": true
+  "userstamps": true,
+  "maxBulkSize": 5
 }

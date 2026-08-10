@@ -195,6 +195,7 @@ function cleanSchema(schema: Schema, typeName: string) {
     delete schema.trackedProperties
   }
   delete schema.encryptedProperties
+  delete schema.maxBulkSize
 
   return schema
 }

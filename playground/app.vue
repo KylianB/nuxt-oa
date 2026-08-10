@@ -13,17 +13,19 @@
         :schema="schema"
       >
         <template #table-header="{ sortBy, sortDesc }">
-          <div :style="{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: '20px', userSelect: 'none' }">
+          <div :style="{ display: 'grid', gridTemplateColumns: '100px 40px 1fr', gap: '20px', userSelect: 'none' }">
             <span>Text {{ sortBy === 'text' ? (sortDesc ? '↑' : '↓') : '' }}</span>
+            <span>Cost</span>
             <span>Actions</span>
           </div>
         </template>
         <template #item="{ item: t, view }">
           <div
             class="item"
-            :style="view === 'card' ? {} : { display: 'grid', gridTemplateColumns: '100px 1fr', alignItems: 'center', gap: '20px' }"
+            :style="view === 'card' ? {} : { display: 'grid', gridTemplateColumns: '100px 40px 1fr', alignItems: 'center', gap: '20px' }"
           >
             <p><b>{{ t.text }}</b></p>
+            <p>{{ t.cost }}</p>
             <div>
               <button
                 :disabled="t.deletedAt"
@@ -79,6 +81,55 @@
       >
         Update a read only property
       </button>
+      <br><br>
+      <button @click="bulkCreate(false)">
+        + Bulk create (3 todos)
+      </button>
+      <button @click="bulkCreate(true)">
+        + Bulk create (partial fail)
+      </button>
+      <button @click="bulkCreateFullFail">
+        + Bulk create (full fail → 400)
+      </button>
+      <button @click="bulkCreateTooMany">
+        + Bulk create (6 items, over the maxBulkSize:5 cap → 400)
+      </button>
+      <button @click="bulkDelete(false)">
+        - Bulk delete (top 3)
+      </button>
+      <button @click="bulkDelete(true)">
+        - Bulk delete (+ 1 malformed id)
+      </button>
+      <button @click="bulkDeleteFullFail">
+        - Bulk delete (full fail → 400)
+      </button>
+      <button @click="bulkArchiveTest()">
+        Bulk archive (top 3 + 1 not found)
+      </button>
+      <button @click="bulkArchiveTest({ archive: false })">
+        Bulk unarchive (top 3 + 1 not found)
+      </button>
+      <button @click="bulkArchiveTest({ mode: 'malformed' })">
+        Bulk archive (+ 1 malformed id)
+      </button>
+      <button @click="bulkArchiveFullFail">
+        Bulk archive (full fail → 400)
+      </button>
+      <button @click="bulkUpdateTest('ok')">
+        ~ Bulk update (top 3)
+      </button>
+      <button @click="bulkUpdateTest('notfound')">
+        ~ Bulk update (top 3 / 1 not found + 1 invalid)
+      </button>
+      <button @click="bulkUpdateTest('malformed')">
+        ~ Bulk update (+ 1 malformed id)
+      </button>
+      <button @click="bulkUpdateTest('blocked')">
+        ~ Bulk update (+ 1 blocked by hook)
+      </button>
+      <button @click="bulkUpdateFullFail">
+        ~ Bulk update (full fail → 400)
+      </button>
     </template>
     <pre
       v-if="msg"
@@ -110,20 +161,22 @@ onMounted(async () => {
 
 const randStr = (base = 36) => Math.random().toString(base).slice(3, 9)
 
-const msgWrapper = <T extends object>(func: (arg: T) => Promise<unknown>, finallyFunc?: () => unknown) => async (d: T) => {
-  msg.value = null
-  msgColor.value = 'green'
-  try {
-    const data = await func(d)
-    msg.value = JSON.stringify(data, null, ' ') || ''
-  } catch (error) {
-    msgColor.value = 'red'
-    msg.value = error instanceof Error ? error.message : String(error)
-    if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'data' in error.data) {
-      msg.value += '\n' + JSON.stringify(error.data.data, null, ' ')
+function msgWrapper<T>(func: (arg: T) => Promise<unknown>, finallyFunc?: () => unknown) {
+  return async (d: T) => {
+    msg.value = null
+    msgColor.value = 'green'
+    try {
+      const data = await func(d)
+      msg.value = JSON.stringify(data, null, ' ') || ''
+    } catch (error) {
+      msgColor.value = 'red'
+      msg.value = error instanceof Error ? error.message : String(error)
+      if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'data' in error.data) {
+        msg.value += '\n' + JSON.stringify(error.data.data, null, ' ')
+      }
+    } finally {
+      finallyFunc?.()
     }
-  } finally {
-    finallyFunc?.()
   }
 }
 
@@ -163,6 +216,114 @@ const rmTodo = msgWrapper(async ({ id }: OaTodo) => {
   todos.value.splice(todos.value.findIndex((t: OaTodo) => t.id === id), 1)
   return data
 })
+
+const bulkCreate = msgWrapper(async (fail = false) => {
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: [
+      { text: 'Bulk 1 ' + randStr() },
+      { text: fail ? 'no' : 'Bulk 2 ' + randStr() },
+      { text: 'Bulk 3 ' + randStr() }
+    ]
+  })
+  todos.value.push(...data.results)
+  return data
+})
+
+const bulkDelete = msgWrapper(async (malformed = false) => {
+  const ids = todos.value.slice(0, 3).map(t => t.id)
+  if (!ids.length) return
+  if (malformed) ids.push('not-an-id') // invalid ObjectId format, isolated as an error instead of failing the whole batch
+  const data = await $fetch<{ deletedCount: number, errors: unknown[] }>('/api/todos/bulk', {
+    method: 'DELETE',
+    body: { ids }
+  })
+  todos.value = todos.value.filter(t => !ids.includes(t.id))
+  return data
+})
+
+const bulkArchiveTest = msgWrapper(async ({ archive = true, mode = 'notfound' }: { archive?: boolean, mode?: 'ok' | 'notfound' | 'malformed' } = {}) => {
+  const ids = todos.value.slice(0, 3).map(t => t.id)
+  const allIds = [...ids]
+  if (mode === 'notfound') allIds.push('63cf86ff1541f5505b' + randStr(16)) // valid format, but doesn't exist
+  if (mode === 'malformed') allIds.push('not-an-id') // invalid ObjectId format
+
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
+    method: 'POST', body: { ids: allIds, archive }
+  })
+  for (const updated of data.results) {
+    const index = todos.value.findIndex(t => t.id === updated.id)
+    if (index !== -1) todos.value.splice(index, 1, updated)
+  }
+  return data
+})
+
+const bulkUpdateTest = msgWrapper(async (mode: 'ok' | 'notfound' | 'malformed' | 'blocked' = 'ok') => {
+  const body = todos.value.slice(0, 3).map(todo => ({ id: todo.id, d: { text: todo.text, cost: (todo.cost ?? 0) + 1 } }))
+  if (!body.length) return
+  if (mode === 'notfound') {
+    body.push({ id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found', cost: 0 } }) // valid format & valid data, but doesn't exist
+    if (body.length > 1 && body[1]) body[1].d.cost = 260 // invalid, max is 250
+  } else if (mode === 'malformed') {
+    body.push({ id: 'not-an-id', d: { text: 'no', cost: 0 } }) // invalid ObjectId format
+  } else if (mode === 'blocked' && body[0]) {
+    body[0].d.text = 'blocked' // rejected by the demo update:before hook, others still go through
+  }
+  const data = await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'PUT', body
+  })
+  for (const updated of data.results) {
+    const index = todos.value.findIndex(t => t.id === updated.id)
+    if (index !== -1) todos.value.splice(index, 1, updated)
+  }
+  return data
+})
+
+// Every item fails (all invalid data) → bulkCreate now throws a 400 instead of a 200 with empty results
+const bulkCreateFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: [
+      { text: 'no' },
+      { text: 'x' }
+    ]
+  })
+)
+
+// Todo's schema sets maxBulkSize to 5 — 6 items goes over the limit, rejected before any hook or DB work runs
+const bulkCreateTooMany = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'POST',
+    body: Array.from({ length: 6 }, () => ({ text: 'Bulk ' + randStr() }))
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkDelete now throws a 400 instead of a 200 with deletedCount: 0
+const bulkDeleteFullFail = msgWrapper(async () =>
+  await $fetch<{ deletedCount: number, errors: unknown[] }>('/api/todos/bulk', {
+    method: 'DELETE',
+    body: { ids: ['63cf86ff1541f5505b' + randStr(16), '63cf86ff1541f5505b' + randStr(16)] }
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkArchive now throws a 400 instead of a 200 with empty results
+const bulkArchiveFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk/archive', {
+    method: 'POST',
+    body: { ids: ['63cf86ff1541f5505b' + randStr(16), '63cf86ff1541f5505b' + randStr(16)], archive: true }
+  })
+)
+
+// Every id is a well-formed but nonexistent ObjectId → bulkUpdate now throws a 400 instead of a 200 with empty results
+const bulkUpdateFullFail = msgWrapper(async () =>
+  await $fetch<{ results: OaTodo[], errors: unknown[] }>('/api/todos/bulk', {
+    method: 'PUT',
+    body: [
+      { id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found 1', cost: 0 } },
+      { id: '63cf86ff1541f5505b' + randStr(16), d: { text: 'not found 2', cost: 0 } }
+    ]
+  })
+)
 
 const testWithRandomId = msgWrapper(async () =>
   await $fetch('/api/todos/63cf86ff1541f5505b' + randStr(16), { method: 'DELETE', body: { text: 'U-test' } })
