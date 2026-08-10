@@ -73,7 +73,7 @@ export interface ModelNuxtOaHooks<T extends OaModelName> {
   'delete:done': (d: HookArgData & HookArgEv & { deletedCount: number }) => HookResult
   'bulkDelete:before': (d: HookArgEv & HookArgIdsArray) => HookResult
   'bulkDelete:documents': (d: HookArgDocs & HookArgEv) => HookResult
-  'bulkDelete:done': (d: HookArgData & HookArgEv & HookArgErrors) => HookResult
+  'bulkDelete:done': (d: HookArgDataArray & HookArgEv & HookArgErrors) => HookResult
 }
 
 type SettledWithErrorsOptions<Item, R> = {
@@ -929,7 +929,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     let deletedCount = 0
     // Fed to bulkDelete:done below — kept separate from `entries` so an id rejected by a
     // delete:document hook or missing from the collection isn't reported there as deleted
-    const deletedIds: ObjectId[] = []
+    const deletedData: Schema[] = []
     const validIds = entries.map(p => p._id)
     const docsResult = await this.callHookDocuments('delete', validIds, errors, event)
     if (validIds.length) {
@@ -960,7 +960,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
               errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
               return
             }
-            deletedIds.push(p._id)
+            deletedData.push({ id: p.id })
             return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
           },
           errors,
@@ -968,7 +968,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         })
       }
     }
-    await this.callHook('bulkDelete:done', { data: { ids: deletedIds }, errors, event })
+    await this.callHook('bulkDelete:done', { data: deletedData, errors, event })
 
     if (ids.length && !deletedCount) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
     return { deletedCount, errors }

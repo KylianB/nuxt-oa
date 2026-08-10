@@ -40,7 +40,7 @@ Todo.hook('update:document', ({ document }) => consola.log(`Todo mongodb documen
 Todo.hook('delete:document', ({ document }) => consola.log(`Todo mongodb document deleted => ${JSON.stringify(document)}`))
 Todo.hook('bulkDelete:documents', ({ documents }) => consola.log(`Todo mongodb documents deleted => ${JSON.stringify(documents)}`))
 Todo.hook('delete:done', ({ data }) => consola.log(`Todo #${data?.id} deleted`))
-Todo.hook('bulkDelete:done', ({ data }) => consola.log(`Todos #[${data?.ids}] deleted`))
+Todo.hook('bulkDelete:done', ({ data }) => consola.log(`Todos #[${data?.map(d => d.id)}] deleted`))
 
 const log = oaHandler((ev: H3Event) => {
   consola.log('log::', ev.node.req.method)
