@@ -30,10 +30,14 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 const isBulkUpdateItem = (value: unknown): value is { id: string, d: Record<string, unknown> } =>
   isPlainObject(value) && isString(value.id) && isPlainObject(value.d)
 
-// Validates only the request shape (array-ness + item type). Per-item business validity
-// (bad ObjectId, schema mismatch, ...) is still isolated downstream via settleWithErrors.
-function validateBulkArray(value: unknown, itemIsValid: (item: unknown) => boolean, statusMessage: string): void {
-  if (!Array.isArray(value) || !value.every(itemIsValid)) {
+function validateBulkArray(value: unknown, maxBulkSize: number, itemIsValid: (item: unknown) => boolean, statusMessage: string) {
+  if (!Array.isArray(value)) {
+    throw createError({ statusCode: 400, statusMessage })
+  }
+  if (value.length > maxBulkSize) {
+    throw createError({ statusCode: 400, statusMessage: 'Too many items', data: { max: maxBulkSize, received: value.length } })
+  }
+  if (!value.every(itemIsValid)) {
     throw createError({ statusCode: 400, statusMessage })
   }
 }
@@ -107,7 +111,7 @@ export const useBulkCreate = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
-    validateBulkArray(body, isPlainObject, 'Body must be an array of objects')
+    validateBulkArray(body, model.maxBulkSize, isPlainObject, 'Body must be an array of objects')
     return await model.bulkCreate(body, useUserId(event), null, event)
   }, {
     tags: [name],
@@ -198,7 +202,7 @@ export const useBulkUpdate = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
-    validateBulkArray(body, isBulkUpdateItem, 'Body must be an array of { id: string, d: object }')
+    validateBulkArray(body, model.maxBulkSize, isBulkUpdateItem, 'Body must be an array of { id: string, d: object }')
     return await model.bulkUpdate(body, useUserId(event), null, event)
   }, {
     tags: [name],
@@ -297,7 +301,7 @@ export const useBulkArchive = <T extends OaModelName>(model: Model<T>, apiDoc = 
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
-    validateBulkArray(body?.ids, isString, 'ids must be an array of strings')
+    validateBulkArray(body?.ids, model.maxBulkSize, isString, 'body ids must be an array of strings')
     return await model.bulkArchive(body?.ids, body?.archive, useUserId(event), event)
   }, {
     tags: [name],
@@ -395,7 +399,7 @@ export const useBulkDelete = <T extends OaModelName>(model: Model<T>, apiDoc = {
 
   return oaHandler(async (event: H3Event) => {
     const body = await readBody(event)
-    validateBulkArray(body?.ids, isString, 'ids must be an array of strings')
+    validateBulkArray(body?.ids, model.maxBulkSize, isString, 'body ids must be an array of strings')
     return await model.bulkDelete(body?.ids, event)
   }, {
     tags: [name],
