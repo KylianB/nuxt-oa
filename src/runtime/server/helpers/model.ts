@@ -733,6 +733,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       }
       const failedIndices = new Set(writeErrors.map(we => we.index))
       const succeededIds = fulfilledIds.filter((_id, i) => !failedIndices.has(i))
+      // bulkWrite + find below are two round trips, not one atomic op — a concurrent write to the
+      // same document landing between them can leak into `results`.
       const updatedDocuments = await this.collection.find({ _id: { $in: succeededIds } } as any).toArray()
       for (const doc of updatedDocuments) results.push(this.cleanJSON(doc))
 
@@ -838,7 +840,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     if (entries.length) {
       const validIds = entries.map(p => p._id)
       await this.collection.updateMany({ _id: { $in: validIds } } as any, { $set: data } as any)
-
+      // updateMany + find below are two round trips, not one atomic op — a concurrent write to the
+      // same document landing between them can leak into `results`.
       const documents = await this.collection.find({ _id: { $in: validIds } } as any).toArray()
       results.push(...documents.map(d => this.cleanJSON(d)))
       const updatedIds = new Set(results.map(j => j.id?.toString()))
