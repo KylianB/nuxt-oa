@@ -937,6 +937,8 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
       // A rejected delete:document hook keeps its document out of the actual delete entirely
       const deletableIds = validIds.filter(_id => !rejectedIds.has(_id.toString()))
       // Know which ids actually exist before deleting, so per-id delete:done/errors reflect reality
+      // find + deleteMany below are two round trips, not one atomic op — a concurrent delete of the
+      // same id landing between them can make delete:done fire for a document this call didn't delete.
       const documents = docsResult?.documents
         ?? await this.collection.find({ _id: { $in: deletableIds } } as any, { projection: { _id: 1 } }).toArray()
       const existingIds = new Set(documents.map(doc => doc._id.toString()))
