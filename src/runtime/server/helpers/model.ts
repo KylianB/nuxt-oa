@@ -908,9 +908,9 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     // Fed to bulkDelete:done below — kept separate from `entries` so an id rejected by a
     // delete:document hook or missing from the collection isn't reported there as deleted
     const deletedIds: ObjectId[] = []
-    if (entries.length) {
-      const validIds = entries.map(p => p._id)
-      const docsResult = await this.callHookDocuments('delete', validIds, errors, event)
+    const validIds = entries.map(p => p._id)
+    const docsResult = await this.callHookDocuments('delete', validIds, errors, event)
+    if (validIds.length) {
       const rejectedIds = docsResult?.rejectedIds ?? new Set<string>()
       // A rejected delete:document hook keeps its document out of the actual delete entirely
       const deletableIds = validIds.filter(_id => !rejectedIds.has(_id.toString()))
@@ -934,8 +934,6 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         errors,
         errorData: (p, data) => data ?? { id: `${p.id}` }
       })
-    } else {
-      await this.callHookDocuments('delete', [], errors, event)
     }
     await this.callHook('bulkDelete:done', { data: { ids: deletedIds }, errors, event })
 
