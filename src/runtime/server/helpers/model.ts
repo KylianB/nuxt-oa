@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import type { KeywordDefinition, ValidateFunction } from 'ajv'
-import { MongoBulkWriteError } from 'mongodb'
+import { MongoBulkWriteError, MongoServerError } from 'mongodb'
 import type { Collection, Document, Filter, ObjectId, OptionalUnlessRequiredId, WithId, WriteError } from 'mongodb'
 import { Hookable, type HookCallback, type HookKeys } from 'hookable'
 import { createError, type H3Event } from 'h3'
@@ -438,6 +438,15 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   }
 
   /**
+   * MongoDB's raw `errmsg` can leak internal details
+   * map known error codes to a safe, generic message
+   */
+  private writeErrorMessage(writeError: { code?: number | string } | undefined): string {
+    if (!writeError) return 'Write error'
+    return writeError.code === 11000 ? 'Duplicate key' : 'Write error'
+  }
+
+  /**
    * Run a per-item task via Promise.allSettled, pushing a normalized error entry for each rejection
    */
   private async settleWithErrors<Item, R>(opt: SettledWithErrorsOptions<Item, R>): Promise<R[]> {
@@ -538,7 +547,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         if (insertedId !== undefined) {
           results.push(this.cleanJSON({ _id: insertedId, ...data }))
         } else {
-          errors.push({ data: { index }, error: writeErrorByIndex.get(i)?.errmsg ?? 'Write error' })
+          errors.push({ data: { index }, error: this.writeErrorMessage(writeErrorByIndex.get(i)) })
         }
       }
       await this.settleWithErrors({
@@ -729,7 +738,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         writeErrors = this.normalizeWriteErrors(error.writeErrors)
       }
       for (const writeError of writeErrors) {
-        errors.push({ data: { id: `${fulfilledIds[writeError.index]}` }, error: writeError.errmsg ?? 'Write error' })
+        errors.push({ data: { id: `${fulfilledIds[writeError.index]}` }, error: this.writeErrorMessage(writeError) })
       }
       const failedIndices = new Set(writeErrors.map(we => we.index))
       const succeededIds = fulfilledIds.filter((_id, i) => !failedIndices.has(i))
