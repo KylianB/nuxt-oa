@@ -792,7 +792,6 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
   async bulkArchive(ids: (string | ObjectId | undefined)[], archive = true, userId?: string | ObjectId, event?: H3Event) {
     this.assertBulkSize(ids)
     const errors: HookArgErrors['errors'] = []
-    const deletedBy = (this.userstamps.deletedBy && archive) ? useObjectId(userId) : undefined
     // Parse ids, isolating malformed ones as errors instead of aborting the whole batch
     const seenIds = new Set<string>()
     const parsed: { id: string | ObjectId | undefined, _id: ObjectId }[] = []
@@ -819,7 +818,7 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     entries = entries.filter(p => !rejectedIds.has(p._id.toString()))
 
     const data: Schema = { deletedAt: archive ? new Date() : undefined }
-    if (this.userstamps.deletedBy) data.deletedBy = deletedBy
+    if (this.userstamps.deletedBy) data.deletedBy = archive ? useObjectId(userId) : undefined
 
     // Isolate after-hook rejections instead of silently discarding them
     // `data` is cloned per call because all entries share one updateMany below — unlike
