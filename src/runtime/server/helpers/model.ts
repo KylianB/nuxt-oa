@@ -848,14 +848,24 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
     const results: ReturnType<typeof this.cleanJSON>[] = []
     if (entries.length) {
       const validIds = entries.map(p => p._id)
-      await this.collection.updateMany({ _id: { $in: validIds } } as any, { $set: data } as any)
-      // updateMany + find below are two round trips, not one atomic op — a concurrent write to the
-      // same document landing between them can leak into `results`.
-      const documents = await this.collection.find({ _id: { $in: validIds } } as any).toArray()
-      results.push(...documents.map(d => this.cleanJSON(d)))
-      const updatedIds = new Set(results.map(j => j.id?.toString()))
-      for (const p of entries) {
-        if (!updatedIds.has(p._id.toString())) errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
+      let writeFailed = false
+      try {
+        await this.collection.updateMany({ _id: { $in: validIds } } as any, { $set: data } as any)
+      } catch (error) {
+        if (!(error instanceof MongoServerError)) throw error
+        writeFailed = true
+        errors.push({ data: { ids: validIds.map(String) }, error: this.writeErrorMessage(error) })
+      }
+      // failed updateMany -> unable to tell which if any documents were actually updated -> skip
+      if (!writeFailed) {
+        // updateMany + find below are two round trips, not one atomic op — a concurrent write to the
+        // same document landing between them can leak into `results`.
+        const documents = await this.collection.find({ _id: { $in: validIds } } as any).toArray()
+        results.push(...documents.map(d => this.cleanJSON(d)))
+        const updatedIds = new Set(results.map(j => j.id?.toString()))
+        for (const p of entries) {
+          if (!updatedIds.has(p._id.toString())) errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
+        }
       }
     }
 
@@ -931,28 +941,34 @@ export default class Model<T extends OaModelName> extends Hookable<ModelNuxtOaHo
         ?? await this.collection.find({ _id: { $in: deletableIds } } as any, { projection: { _id: 1 } }).toArray()
       const existingIds = new Set(documents.map(doc => doc._id.toString()))
 
-      deletedCount = (await this.collection.deleteMany({ _id: { $in: deletableIds } } as any)).deletedCount
-
-      await this.settleWithErrors({
-        items: entries.filter(p => !rejectedIds.has(p._id.toString())),
-        run: (p) => {
-          if (!existingIds.has(p._id.toString())) {
-            errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
-            return
-          }
-          deletedIds.push(p._id)
-          return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
-        },
-        errors,
-        errorData: (p, data) => data ?? { id: `${p.id}` }
-      })
+      let deleteFailed = false
+      try {
+        deletedCount = (await this.collection.deleteMany({ _id: { $in: deletableIds } } as any)).deletedCount
+      } catch (error) {
+        if (!(error instanceof MongoServerError)) throw error
+        deleteFailed = true
+        errors.push({ data: { ids: deletableIds.map(String) }, error: this.writeErrorMessage(error) })
+      }
+      // failed deleteMany -> unable to tell which if any documents were actually removed -> skip
+      if (!deleteFailed) {
+        await this.settleWithErrors({
+          items: entries.filter(p => !rejectedIds.has(p._id.toString())),
+          run: (p) => {
+            if (!existingIds.has(p._id.toString())) {
+              errors.push({ data: { id: `${p.id}` }, error: 'Document not found' })
+              return
+            }
+            deletedIds.push(p._id)
+            return this.callHook('delete:done', { data: { id: p.id }, deletedCount: 1, event })
+          },
+          errors,
+          errorData: (p, data) => data ?? { id: `${p.id}` }
+        })
+      }
     }
     await this.callHook('bulkDelete:done', { data: { ids: deletedIds }, errors, event })
 
-    // No results array to check here (delete has nothing to return but a count), so full-failure
-    // is judged on deletedCount instead of the !results.length check used by the other three bulk ops
     if (ids.length && !deletedCount) throw createError({ statusCode: 400, statusMessage: 'Bad data', data: { errors } })
-
     return { deletedCount, errors }
   }
 
