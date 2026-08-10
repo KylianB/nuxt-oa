@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/Morgbn/nuxt-oa/compare/v2.0.1...v2.1.0) (2026-08-10)
+
+
+### Features
+
+* :sparkles: add bulk operations ([#2](https://github.com/Morgbn/nuxt-oa/issues/2)) ([3789b02](https://github.com/Morgbn/nuxt-oa/commit/3789b0203978dfe0cd40417553df9701e85ccf66))
+
 ## [2.0.1](https://github.com/Morgbn/nuxt-oa/compare/v2.0.0...v2.0.1) (2026-08-02)
 
 
